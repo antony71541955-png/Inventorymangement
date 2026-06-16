@@ -150,9 +150,9 @@ function Layout() {
   ] : baseMenuItems;
 
   const sidebarFooterItems = [
-    { name: 'Notifications', icon: <Bell size={16} />, badge: '?' },
-    { name: 'Help & Support', icon: <HelpCircle size={16} /> },
-    { name: 'Settings', icon: <Settings size={16} /> },
+    // { name: 'Notifications', icon: <Bell size={16} />, badge: '?' },
+    // { name: 'Help & Support', icon: <HelpCircle size={16} /> },
+    // { name: 'Settings', icon: <Settings size={16} /> },
   ];
 
   // Navigation link renderer
@@ -187,7 +187,7 @@ function Layout() {
           <div className="flex items-center justify-between text-zinc-100 font-bold text-sm tracking-wide mb-6">
             <div className="flex items-center gap-2">
               <Layers className="text-zinc-100" size={18} />
-              <span>Mate</span>
+              <span>Inventory Management</span>
             </div>
             <button className="text-zinc-500 hover:text-zinc-300">
               <span className="text-xs">⇥</span>
@@ -195,7 +195,7 @@ function Layout() {
           </div>
 
           {/* Capsule Search Input */}
-          <div className="relative mb-5">
+          {/* <div className="relative mb-5">
             <Search className="absolute left-3.5 top-2.5 h-3.5 w-3.5 text-zinc-500" />
             <input 
               type="text" 
@@ -203,7 +203,7 @@ function Layout() {
               placeholder="Search"
             />
             <span className="absolute right-3.5 top-2.5 text-[9px] text-zinc-600 font-mono">⌘F</span>
-          </div>
+          </div> */}
 
           <nav>
             {renderNavLinks()}
@@ -251,7 +251,7 @@ function Layout() {
         <header className="lg:hidden flex items-center justify-between px-6 py-3 border-b border-zinc-200 bg-white sticky top-0 z-40">
           <div className="flex items-center gap-2 font-bold text-sm text-zinc-900">
             <Layers className="text-indigo-600" size={18} />
-            <span>Mate</span>
+            <span>Inventory Management</span>
           </div>
 
           <Sheet open={openMobileMenu} onOpenChange={setOpenMobileMenu}>
@@ -265,7 +265,7 @@ function Layout() {
                 <SheetHeader className="text-left border-b border-zinc-850 pb-4 mb-4">
                   <SheetTitle className="flex items-center gap-2.5 text-sm font-bold text-zinc-100">
                     <Layers className="text-indigo-500" size={20} />
-                    <span>Mate</span>
+                    <span>Inventory Management</span>
                   </SheetTitle>
                 </SheetHeader>
                 
