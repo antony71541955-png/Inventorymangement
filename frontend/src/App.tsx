@@ -149,7 +149,7 @@ function Layout() {
     { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> }
   ] : baseMenuItems;
 
-  const sidebarFooterItems = [
+  const sidebarFooterItems: any[] = [
     // { name: 'Notifications', icon: <Bell size={16} />, badge: '?' },
     // { name: 'Help & Support', icon: <HelpCircle size={16} /> },
     // { name: 'Settings', icon: <Settings size={16} /> },
