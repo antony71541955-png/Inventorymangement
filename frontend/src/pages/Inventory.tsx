@@ -114,6 +114,47 @@ export default function Inventory() {
     setSelectedBatches(prev => ({ ...prev, [partNumber]: newBatch }));
   };
 
+  const [isEditing, setIsEditing] = useState(false);
+
+  const handleEditClick = () => {
+    if (!selectedItem) return;
+    setPartNumber(selectedItem.part_number);
+    setItemName(selectedItem.item_name);
+    setDescription(selectedItem.description || '');
+    setCategory(selectedItem.category || '');
+    setUnitOfMeasure(selectedItem.unit_of_measure || 'pcs');
+    setMinStock(selectedItem.min_stock.toString());
+    setItemType(selectedItem.item_type || 'non food');
+    setBatchNo(selectedItem.batch_no || '');
+    setExpiry(selectedItem.expiry || '');
+    setSellingPrice((selectedItem.selling_price || 0.0).toString());
+    setWarehouse('');
+    setBinLocation('');
+    setInitialQty('0');
+    setImageFile(null);
+    setIsEditing(true);
+    setIsAddModalOpen(true);
+  };
+
+  const handleAddClick = () => {
+    setPartNumber('');
+    setItemName('');
+    setDescription('');
+    setCategory('');
+    setUnitOfMeasure('pcs');
+    setMinStock('10');
+    setItemType('non food');
+    setBatchNo('');
+    setExpiry('');
+    setSellingPrice('0.0');
+    setWarehouse('');
+    setBinLocation('');
+    setInitialQty('0');
+    setImageFile(null);
+    setIsEditing(false);
+    setIsAddModalOpen(true);
+  };
+
   // Stats
   const [stats, setStats] = useState({
     totalVolume: 0,
@@ -368,7 +409,7 @@ export default function Inventory() {
       {/* Title Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900">Inventory</h1>
-        <Button className="bg-zinc-950 hover:bg-zinc-900 text-white font-semibold text-xs h-9 rounded-md shadow-sm" onClick={() => setIsAddModalOpen(true)}>
+        <Button className="bg-zinc-955 hover:bg-zinc-900 text-white font-semibold text-xs h-9 rounded-md shadow-sm" onClick={handleAddClick}>
           <Plus className="mr-1.5 h-4 w-4" /> Add Stock Item
         </Button>
       </div>
@@ -583,7 +624,7 @@ export default function Inventory() {
 
                 {/* Edit, Print, Duplicate Action Button Row */}
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                  <Button className="bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-semibold h-7.5 px-3 rounded-md shadow-sm">
+                  <Button onClick={handleEditClick} className="bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-semibold h-7.5 px-3 rounded-md shadow-sm">
                     <Edit size={12} className="mr-1 shrink-0" /> Edit
                   </Button>
                   <Button variant="outline" className="border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-[11px] font-semibold h-7.5 px-2.5 rounded-md">
@@ -778,7 +819,9 @@ export default function Inventory() {
       <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
         <DialogContent className="bg-white border-zinc-200 text-zinc-900 max-w-2xl max-h-[95vh] overflow-y-auto p-5 rounded-xl shadow-lg">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-zinc-900">Add New Stock Allocation</DialogTitle>
+            <DialogTitle className="text-lg font-bold text-zinc-900">
+              {isEditing ? `Edit Item: ${partNumber}` : 'Add New Stock Allocation'}
+            </DialogTitle>
           </DialogHeader>
 
           {formError && (
@@ -804,6 +847,7 @@ export default function Inventory() {
                   value={partNumber}
                   onChange={(e) => setPartNumber(e.target.value)}
                   required
+                  disabled={isEditing}
                 />
               </div>
               <div className="space-y-1">
@@ -922,54 +966,56 @@ export default function Inventory() {
               </div>
             )}
 
-            {/* Row 5: Initial Location Allocation */}
-            <div className="border-t border-zinc-200 pt-3 space-y-2">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Initial Location Allocation (Optional)</span>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-semibold text-zinc-400">Warehouse</label>
-                  <select
-                    className="w-full p-1.5 h-8.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
-                    value={warehouse}
-                    onChange={(e) => {
-                      setWarehouse(e.target.value);
-                      setBinLocation(''); // Reset bin when warehouse changes
-                    }}
-                  >
-                    <option value="">-- Select --</option>
-                    {Object.keys(locations).map(wh => (
-                      <option key={wh} value={wh}>{wh}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-semibold text-zinc-400">Bin Location</label>
-                  <select
-                    className="w-full p-1.5 h-8.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
-                    value={binLocation}
-                    onChange={(e) => setBinLocation(e.target.value)}
-                    disabled={!warehouse}
-                  >
-                    <option value="">-- Select --</option>
-                    {(locations[warehouse] || []).map(bin => (
-                      <option key={bin} value={bin}>{bin}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-semibold text-zinc-400">Quantity</label>
-                  <Input
-                    type="number"
-                    className="h-8.5 bg-white border-zinc-200 text-zinc-800 text-xs"
-                    value={initialQty}
-                    onChange={(e) => setInitialQty(e.target.value)}
-                  />
+            {/* Row 5: Initial Location Allocation (Optional) - Only shown when creating a new item */}
+            {!isEditing && (
+              <div className="border-t border-zinc-200 pt-3 space-y-2">
+                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Initial Location Allocation (Optional)</span>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-semibold text-zinc-400">Warehouse</label>
+                    <select
+                      className="w-full p-1.5 h-8.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
+                      value={warehouse}
+                      onChange={(e) => {
+                        setWarehouse(e.target.value);
+                        setBinLocation(''); // Reset bin when warehouse changes
+                      }}
+                    >
+                      <option value="">-- Select --</option>
+                      {Object.keys(locations).map(wh => (
+                        <option key={wh} value={wh}>{wh}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-semibold text-zinc-400">Bin Location</label>
+                    <select
+                      className="w-full p-1.5 h-8.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
+                      value={binLocation}
+                      onChange={(e) => setBinLocation(e.target.value)}
+                      disabled={!warehouse}
+                    >
+                      <option value="">-- Select --</option>
+                      {(locations[warehouse] || []).map(bin => (
+                        <option key={bin} value={bin}>{bin}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-semibold text-zinc-400">Quantity</label>
+                    <Input
+                      type="number"
+                      className="h-8.5 bg-white border-zinc-200 text-zinc-800 text-xs"
+                      value={initialQty}
+                      onChange={(e) => setInitialQty(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             <Button type="submit" className="w-full mt-2 bg-zinc-900 hover:bg-zinc-800 text-white font-semibold h-9 text-xs" disabled={formLoading}>
-              {formLoading ? 'Saving...' : 'Save Stock Record'}
+              {formLoading ? 'Saving...' : (isEditing ? 'Update Stock Item' : 'Save Stock Record')}
             </Button>
           </form>
         </DialogContent>
