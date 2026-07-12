@@ -460,7 +460,7 @@ export default function Inventory() {
           >
             <Upload className="mr-1.5 h-4 w-4 text-zinc-500" /> {uploadingExcel ? 'Uploading...' : 'Bulk Excel Upload'}
           </Button>
-          <Button className="bg-zinc-955 hover:bg-zinc-900 text-white font-semibold text-xs h-9 rounded-md shadow-sm" onClick={handleAddClick}>
+          <Button className="bg-zinc-950 hover:bg-zinc-900 text-white font-semibold text-xs h-9 rounded-md shadow-sm" onClick={handleAddClick}>
             <Plus className="mr-1.5 h-4 w-4" /> Add Stock Item
           </Button>
         </div>
