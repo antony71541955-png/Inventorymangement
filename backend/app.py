@@ -71,6 +71,9 @@ def init_db():
             unit_of_measure TEXT DEFAULT 'pcs',
             image_path TEXT,
             min_stock INTEGER DEFAULT 10,
+            item_type TEXT DEFAULT 'non food',
+            batch_no TEXT,
+            expiry TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -132,6 +135,16 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_stock_balances_location ON stock_balances(warehouse, bin_location)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_stock_journal_part_number ON stock_journal(part_number)")
     
+    # Ensure columns exist in case the table was created previously without them
+    c.execute("PRAGMA table_info(items)")
+    columns = [row[1] for row in c.fetchall()]
+    if "item_type" not in columns:
+        c.execute("ALTER TABLE items ADD COLUMN item_type TEXT DEFAULT 'non food'")
+    if "batch_no" not in columns:
+        c.execute("ALTER TABLE items ADD COLUMN batch_no TEXT")
+    if "expiry" not in columns:
+        c.execute("ALTER TABLE items ADD COLUMN expiry TEXT")
+
     # Create default user if not exists (username: admin, password: password123)
     c.execute("SELECT id FROM users WHERE username = 'admin'")
     if not c.fetchone():
@@ -440,6 +453,9 @@ def get_inventory():
             items.unit_of_measure, 
             items.image_path, 
             items.min_stock,
+            items.item_type,
+            items.batch_no,
+            items.expiry,
             IFNULL((SELECT SUM(quantity) FROM stock_balances WHERE stock_balances.part_number = items.part_number), 0) AS total_quantity
         FROM items
         {where_clause}
@@ -478,7 +494,10 @@ def get_inventory():
             "image_path": r["image_path"],
             "min_stock": r["min_stock"],
             "total_quantity": r["total_quantity"],
-            "locations": locs
+            "locations": locs,
+            "item_type": r["item_type"],
+            "batch_no": r["batch_no"],
+            "expiry": r["expiry"]
         })
         
     conn.close()
@@ -516,7 +535,10 @@ def get_item_by_part_number(part_number):
         "unit_of_measure": item["unit_of_measure"],
         "image_path": item["image_path"],
         "min_stock": item["min_stock"],
-        "locations": locs
+        "locations": locs,
+        "item_type": item["item_type"],
+        "batch_no": item["batch_no"],
+        "expiry": item["expiry"]
     }
     
     conn.close()
@@ -533,6 +555,10 @@ def add_inventory_item():
     unit_of_measure = request.form.get("unit_of_measure", "pcs").strip()
     min_stock = int(request.form.get("min_stock", 10))
     
+    item_type = request.form.get("item_type", "non food").strip().lower()
+    batch_no = request.form.get("batch_no", "").strip()
+    expiry = request.form.get("expiry", "").strip()
+    
     # Warehouse & quantity for initial stock addition (optional)
     warehouse = request.form.get("warehouse", "").strip()
     bin_location = request.form.get("bin_location", "").strip()
@@ -542,6 +568,12 @@ def add_inventory_item():
     if not part_number or not item_name:
         return jsonify({"error": "Part Number and Item Name are required fields"}), 400
         
+    if item_type == "food":
+        if not batch_no:
+            return jsonify({"error": "Batch No is required for food items"}), 400
+        if not expiry:
+            return jsonify({"error": "Expiry date is required for food items"}), 400
+            
     # Handle Image Upload
     image_file = request.files.get("image")
     image_path = None
@@ -570,9 +602,10 @@ def add_inventory_item():
             # Update master details
             c.execute('''
                 UPDATE items 
-                SET item_name = ?, description = ?, category = ?, unit_of_measure = ?, min_stock = ?, image_path = ?
+                SET item_name = ?, description = ?, category = ?, unit_of_measure = ?, min_stock = ?, image_path = ?, item_type = ?, batch_no = ?, expiry = ?
                 WHERE part_number = ?
-            ''', (item_name, description, category, unit_of_measure, min_stock, image_path, part_number))
+            ''', (item_name, description, category, unit_of_measure, min_stock, image_path, item_type, 
+                  batch_no if item_type == "food" else None, expiry if item_type == "food" else None, part_number))
             
             # Log UPDATION in journal
             voucher_upd = generate_voucher_number("STJ-UPD")
@@ -583,9 +616,10 @@ def add_inventory_item():
         else:
             # Insert master item
             c.execute('''
-                INSERT INTO items (part_number, item_name, description, category, unit_of_measure, min_stock, image_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (part_number, item_name, description, category, unit_of_measure, min_stock, image_path))
+                INSERT INTO items (part_number, item_name, description, category, unit_of_measure, min_stock, image_path, item_type, batch_no, expiry)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (part_number, item_name, description, category, unit_of_measure, min_stock, image_path, item_type,
+                  batch_no if item_type == "food" else None, expiry if item_type == "food" else None))
             
             # Log CREATION in journal
             voucher_cre = generate_voucher_number("STJ-CRE")

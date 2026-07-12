@@ -40,6 +40,9 @@ interface InventoryItem {
   min_stock: number;
   total_quantity: number;
   locations: LocationBreakdown[];
+  item_type?: string;
+  batch_no?: string;
+  expiry?: string;
 }
 
 export default function Inventory() {
@@ -66,6 +69,9 @@ export default function Inventory() {
   const [category, setCategory] = useState('');
   const [unitOfMeasure, setUnitOfMeasure] = useState('pcs');
   const [minStock, setMinStock] = useState('10');
+  const [itemType, setItemType] = useState('non food');
+  const [batchNo, setBatchNo] = useState('');
+  const [expiry, setExpiry] = useState('');
   const [warehouse, setWarehouse] = useState('');
   const [binLocation, setBinLocation] = useState('');
   const [initialQty, setInitialQty] = useState('0');
@@ -185,6 +191,19 @@ export default function Inventory() {
       return;
     }
 
+    if (itemType === 'food') {
+      if (!batchNo.trim()) {
+        setFormError('Batch No is a mandatory field for food items.');
+        setFormLoading(false);
+        return;
+      }
+      if (!expiry.trim()) {
+        setFormError('Expiry Date is a mandatory field for food items.');
+        setFormLoading(false);
+        return;
+      }
+    }
+
     try {
       const formData = new FormData();
       formData.append('part_number', partNumber.trim());
@@ -193,6 +212,12 @@ export default function Inventory() {
       formData.append('category', category.trim() || 'Uncategorized');
       formData.append('unit_of_measure', unitOfMeasure);
       formData.append('min_stock', minStock);
+      formData.append('item_type', itemType);
+      
+      if (itemType === 'food') {
+        formData.append('batch_no', batchNo.trim());
+        formData.append('expiry', expiry.trim());
+      }
       
       if (warehouse.trim() && binLocation.trim() && parseInt(initialQty) > 0) {
         formData.append('warehouse', warehouse.trim());
@@ -221,6 +246,9 @@ export default function Inventory() {
       setItemName('');
       setDescription('');
       setCategory('');
+      setItemType('non food');
+      setBatchNo('');
+      setExpiry('');
       setWarehouse('');
       setBinLocation('');
       setInitialQty('0');
@@ -349,6 +377,8 @@ export default function Inventory() {
                       Product {sortBy === 'item_name' ? (sortDir === 'ASC' ? ' ▲' : ' ▼') : ''}
                     </TableHead>
                     <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider hidden sm:table-cell">Category</TableHead>
+                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider">Batch No</TableHead>
+                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider">Expiry</TableHead>
                     <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider text-right" onClick={() => toggleSort('total_quantity')}>
                       Stock
                     </TableHead>
@@ -357,13 +387,13 @@ export default function Inventory() {
                 <TableBody>
                   {loading ? (
                     <TableRow className="border-b border-zinc-100">
-                      <TableCell colSpan={5} className="text-center py-12 text-zinc-450 text-xs">
+                      <TableCell colSpan={7} className="text-center py-12 text-zinc-450 text-xs">
                         Loading database catalog...
                       </TableCell>
                     </TableRow>
                   ) : items.length === 0 ? (
                     <TableRow className="border-b border-zinc-100">
-                      <TableCell colSpan={5} className="text-center py-12 text-zinc-450 text-xs">
+                      <TableCell colSpan={7} className="text-center py-12 text-zinc-450 text-xs">
                         No product allocations match.
                       </TableCell>
                     </TableRow>
@@ -395,6 +425,8 @@ export default function Inventory() {
                         <TableCell className="font-semibold text-zinc-900 text-xs">{item.part_number}</TableCell>
                         <TableCell className="text-zinc-700 text-xs font-semibold max-w-[160px] truncate sm:max-w-none">{item.item_name}</TableCell>
                         <TableCell className="hidden sm:table-cell text-zinc-500 text-xs font-medium">{item.category}</TableCell>
+                        <TableCell className="text-zinc-500 text-xs font-medium">{item.batch_no || '-'}</TableCell>
+                        <TableCell className="text-zinc-550 text-xs font-medium">{item.expiry || '-'}</TableCell>
                         <TableCell className="text-right text-xs">
                           <span className={`font-bold ${
                             item.total_quantity < 0 ? 'text-red-500' :
@@ -484,6 +516,22 @@ export default function Inventory() {
                       <span className="text-zinc-500">Category</span>
                       <strong className="text-zinc-850 text-right truncate pl-2">{selectedItem.category}</strong>
                     </div>
+                    <div className="grid grid-cols-2">
+                      <span className="text-zinc-500">Item Type</span>
+                      <strong className="text-zinc-850 text-right capitalize">{selectedItem.item_type || 'non food'}</strong>
+                    </div>
+                    {(selectedItem.item_type === 'food' || selectedItem.batch_no || selectedItem.expiry) && (
+                      <>
+                        <div className="grid grid-cols-2">
+                          <span className="text-zinc-500">Batch No</span>
+                          <strong className="text-zinc-850 text-right truncate pl-2">{selectedItem.batch_no || '-'}</strong>
+                        </div>
+                        <div className="grid grid-cols-2">
+                          <span className="text-zinc-500">Expiry</span>
+                          <strong className="text-zinc-850 text-right">{selectedItem.expiry || '-'}</strong>
+                        </div>
+                      </>
+                    )}
                     <div className="grid grid-cols-2">
                       <span className="text-zinc-500">Stock</span>
                       <strong className="text-zinc-850 text-right">{selectedItem.total_quantity}</strong>
@@ -629,7 +677,7 @@ export default function Inventory() {
 
       {/* Add Item Dialog Modal */}
       <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-        <DialogContent className="bg-white border-zinc-200 text-zinc-900 max-w-lg p-6 rounded-xl shadow-lg">
+        <DialogContent className="bg-white border-zinc-200 text-zinc-900 max-w-2xl max-h-[95vh] overflow-y-auto p-5 rounded-xl shadow-lg">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-zinc-900">Add New Stock Allocation</DialogTitle>
           </DialogHeader>
@@ -646,91 +694,131 @@ export default function Inventory() {
           )}
 
           <form onSubmit={handleFormSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+            {/* Row 1: Part Number, Item Name, Item Type */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Part Number (SKU)*</label>
                 <Input
                   type="text"
-                  className="bg-white border-zinc-200 text-zinc-800 text-xs"
+                  className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                   placeholder="e.g., P-100"
                   value={partNumber}
                   onChange={(e) => setPartNumber(e.target.value)}
                   required
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-455 uppercase tracking-wider">Item Name*</label>
                 <Input
                   type="text"
-                  className="bg-white border-zinc-200 text-zinc-800 text-xs"
+                  className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                   placeholder="e.g., Metal Bearing"
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
                   required
                 />
               </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Item Type</label>
+                <select
+                  className="w-full p-1.5 h-8 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
+                  value={itemType}
+                  onChange={(e) => setItemType(e.target.value)}
+                >
+                  <option value="non food">Non Food</option>
+                  <option value="food">Food</option>
+                </select>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+            {/* Row 2: Category, Unit of Measure, Min Stock Level, Upload Picture */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Category</label>
                 <Input
                   type="text"
-                  className="bg-white border-zinc-200 text-zinc-800 text-xs"
+                  className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                   placeholder="e.g., Mechanical"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Unit of Measure</label>
                 <Input
                   type="text"
-                  className="bg-white border-zinc-200 text-zinc-800 text-xs"
+                  className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                   value={unitOfMeasure}
                   onChange={(e) => setUnitOfMeasure(e.target.value)}
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Min Stock Level</label>
                 <Input
                   type="number"
-                  className="bg-white border-zinc-200 text-zinc-800 text-xs"
+                  className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                   value={minStock}
                   onChange={(e) => setMinStock(e.target.value)}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Upload Picture</label>
                 <Input
                   type="file"
-                  className="bg-white border-zinc-200 text-zinc-400 file:text-zinc-800 cursor-pointer text-xs"
+                  className="bg-white border-zinc-200 text-zinc-450 file:text-zinc-850 cursor-pointer text-xs h-8 p-1"
                   onChange={handleFileChange}
                   accept="image/*"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            {/* Row 3: Description (Inline text input to minimize height) */}
+            <div className="space-y-1">
               <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Description</label>
-              <textarea
-                className="w-full min-h-[60px] p-3 rounded-md bg-white border border-zinc-205 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-800 resize-none"
+              <Input
+                type="text"
+                className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                 placeholder="Optional item description..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
 
-            <div className="border-t border-zinc-200 pt-4 space-y-3">
+            {/* Row 4 (Conditional): Food Fields (Batch No & Expiry) */}
+            {itemType === 'food' && (
+              <div className="grid grid-cols-2 gap-4 border border-zinc-100 bg-zinc-50/50 p-2.5 rounded-lg">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Batch No*</label>
+                  <Input
+                    type="text"
+                    className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
+                    placeholder="e.g., B-2024"
+                    value={batchNo}
+                    onChange={(e) => setBatchNo(e.target.value)}
+                    required={itemType === 'food'}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Expiry*</label>
+                  <Input
+                    type="date"
+                    className="bg-white border-zinc-200 text-zinc-850 text-xs h-8"
+                    value={expiry}
+                    onChange={(e) => setExpiry(e.target.value)}
+                    required={itemType === 'food'}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Row 5: Initial Location Allocation */}
+            <div className="border-t border-zinc-200 pt-3 space-y-2">
               <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Initial Location Allocation (Optional)</span>
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="text-[9px] font-semibold text-zinc-400">Warehouse</label>
                   <select
-                    className="w-full p-2 h-8.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
+                    className="w-full p-1.5 h-8.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
                     value={warehouse}
                     onChange={(e) => {
                       setWarehouse(e.target.value);
@@ -746,7 +834,7 @@ export default function Inventory() {
                 <div className="space-y-1">
                   <label className="text-[9px] font-semibold text-zinc-400">Bin Location</label>
                   <select
-                    className="w-full p-2 h-8.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
+                    className="w-full p-1.5 h-8.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
                     value={binLocation}
                     onChange={(e) => setBinLocation(e.target.value)}
                     disabled={!warehouse}
@@ -769,7 +857,7 @@ export default function Inventory() {
               </div>
             </div>
 
-            <Button type="submit" className="w-full mt-4 bg-zinc-900 hover:bg-zinc-800 text-white font-semibold" disabled={formLoading}>
+            <Button type="submit" className="w-full mt-2 bg-zinc-900 hover:bg-zinc-800 text-white font-semibold h-9 text-xs" disabled={formLoading}>
               {formLoading ? 'Saving...' : 'Save Stock Record'}
             </Button>
           </form>
