@@ -574,10 +574,7 @@ export default function Inventory() {
                       return (
                         <TableRow 
                           key={item.id} 
-                          onClick={() => {
-                            setSelectedItem(item);
-                            setIsDetailsMinimized(false); // auto-expand to show new selection
-                          }}
+                          onClick={() => setSelectedItem(item)}
                           className={`border-b border-zinc-100/80 cursor-pointer transition-colors ${
                             selectedItem?.part_number === item.part_number ? 'bg-zinc-50 hover:bg-zinc-100/50' : 'hover:bg-zinc-50/50'
                           }`}
