@@ -1139,7 +1139,17 @@ def upload_deduction_excel():
     c = conn.cursor()
     
     for idx, row in df.iterrows():
-        part = str(row[part_col]).strip().upper()
+        raw_part = row[part_col]
+        if pd.notna(raw_part):
+            if isinstance(raw_part, (int, float)):
+                part = str(int(raw_part)).strip().upper()
+            else:
+                part = str(raw_part).strip().upper()
+                if part.endswith('.0'):
+                    part = part[:-2]
+        else:
+            part = ''
+            
         raw_qty = row[qty_col]
         
         # Check blank rows
