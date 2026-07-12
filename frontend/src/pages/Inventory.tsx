@@ -27,6 +27,8 @@ interface LocationBreakdown {
   warehouse: string;
   bin_location: string;
   quantity: number;
+  batch_no?: string;
+  expiry?: string;
 }
 
 interface InventoryItem {
@@ -43,6 +45,7 @@ interface InventoryItem {
   item_type?: string;
   batch_no?: string;
   expiry?: string;
+  selling_price?: number;
 }
 
 export default function Inventory() {
@@ -72,6 +75,7 @@ export default function Inventory() {
   const [itemType, setItemType] = useState('non food');
   const [batchNo, setBatchNo] = useState('');
   const [expiry, setExpiry] = useState('');
+  const [sellingPrice, setSellingPrice] = useState('0.0');
   const [warehouse, setWarehouse] = useState('');
   const [binLocation, setBinLocation] = useState('');
   const [initialQty, setInitialQty] = useState('0');
@@ -79,6 +83,36 @@ export default function Inventory() {
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [formLoading, setFormLoading] = useState(false);
+
+  // Row selection states for location and batch dropdowns
+  const [selectedLocations, setSelectedLocations] = useState<Record<string, string>>({}); // key: part_number, value: "warehouse|bin"
+  const [selectedBatches, setSelectedBatches] = useState<Record<string, string>>({}); // key: part_number, value: "batch_no"
+
+  // Dropdown helper functions and change handlers
+  const getUniqueLocations = (item: InventoryItem) => {
+    const locMap = new Map<string, { warehouse: string; bin_location: string }>();
+    item.locations?.forEach((loc) => {
+      const key = `${loc.warehouse}|${loc.bin_location}`;
+      if (!locMap.has(key)) {
+        locMap.set(key, { warehouse: loc.warehouse, bin_location: loc.bin_location });
+      }
+    });
+    return Array.from(locMap.values());
+  };
+
+  const handleLocationChange = (partNumber: string, item: InventoryItem, newLoc: string) => {
+    setSelectedLocations(prev => ({ ...prev, [partNumber]: newLoc }));
+    
+    // Pick the first batch associated with this new location
+    const [wh, bin] = newLoc.split('|');
+    const matches = item.locations?.filter(loc => loc.warehouse === wh && loc.bin_location === bin) || [];
+    const firstBatch = matches[0]?.batch_no || '';
+    setSelectedBatches(prev => ({ ...prev, [partNumber]: firstBatch }));
+  };
+
+  const handleBatchChange = (partNumber: string, newBatch: string) => {
+    setSelectedBatches(prev => ({ ...prev, [partNumber]: newBatch }));
+  };
 
   // Stats
   const [stats, setStats] = useState({
@@ -116,6 +150,24 @@ export default function Inventory() {
       
       setItems(data.items || []);
       setTotal(data.total || 0);
+      
+      // Initialize selectedLocations and selectedBatches for newly loaded items
+      const loadedItems = data.items || [];
+      const newLocs: Record<string, string> = { ...selectedLocations };
+      const newBatches: Record<string, string> = { ...selectedBatches };
+      
+      loadedItems.forEach((item: InventoryItem) => {
+        const key = item.part_number;
+        if (!newLocs[key] && item.locations && item.locations.length > 0) {
+          const defaultLoc = `${item.locations[0].warehouse}|${item.locations[0].bin_location}`;
+          newLocs[key] = defaultLoc;
+          
+          const defaultBatch = item.locations[0].batch_no || '';
+          newBatches[key] = defaultBatch;
+        }
+      });
+      setSelectedLocations(newLocs);
+      setSelectedBatches(newBatches);
       
       // Update selected item detail breakdown in view if it is still open
       if (selectedItem) {
@@ -213,6 +265,7 @@ export default function Inventory() {
       formData.append('unit_of_measure', unitOfMeasure);
       formData.append('min_stock', minStock);
       formData.append('item_type', itemType);
+      formData.append('selling_price', sellingPrice.trim());
       
       if (itemType === 'food') {
         formData.append('batch_no', batchNo.trim());
@@ -249,6 +302,7 @@ export default function Inventory() {
       setItemType('non food');
       setBatchNo('');
       setExpiry('');
+      setSellingPrice('0.0');
       setWarehouse('');
       setBinLocation('');
       setInitialQty('0');
@@ -369,74 +423,119 @@ export default function Inventory() {
               <Table>
                 <TableHeader className="bg-zinc-50/70 border-b border-zinc-200">
                   <TableRow className="hover:bg-zinc-50/70">
-                    <TableHead className="w-14 text-zinc-500 text-[10px] font-bold tracking-wider text-center">Pic</TableHead>
+                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider">Group</TableHead>
                     <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider cursor-pointer" onClick={() => toggleSort('part_number')}>
-                      SKU/Part Number {sortBy === 'part_number' ? (sortDir === 'ASC' ? ' ▲' : ' ▼') : ''}
+                      Part Number {sortBy === 'part_number' ? (sortDir === 'ASC' ? ' ▲' : ' ▼') : ''}
                     </TableHead>
                     <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider cursor-pointer" onClick={() => toggleSort('item_name')}>
-                      Product {sortBy === 'item_name' ? (sortDir === 'ASC' ? ' ▲' : ' ▼') : ''}
+                      Item Name {sortBy === 'item_name' ? (sortDir === 'ASC' ? ' ▲' : ' ▼') : ''}
                     </TableHead>
-                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider hidden sm:table-cell">Category</TableHead>
-                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider">Batch No</TableHead>
+                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider">Location</TableHead>
+                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider text-center">Location Stock</TableHead>
+                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider">batchNo</TableHead>
                     <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider">Expiry</TableHead>
                     <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider text-right" onClick={() => toggleSort('total_quantity')}>
-                      Stock
+                      Total Stock
                     </TableHead>
+                    <TableHead className="text-zinc-500 text-[10px] font-bold tracking-wider text-right">Selling Price</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow className="border-b border-zinc-100">
-                      <TableCell colSpan={7} className="text-center py-12 text-zinc-450 text-xs">
+                      <TableCell colSpan={9} className="text-center py-12 text-zinc-450 text-xs">
                         Loading database catalog...
                       </TableCell>
                     </TableRow>
                   ) : items.length === 0 ? (
                     <TableRow className="border-b border-zinc-100">
-                      <TableCell colSpan={7} className="text-center py-12 text-zinc-450 text-xs">
+                      <TableCell colSpan={9} className="text-center py-12 text-zinc-450 text-xs">
                         No product allocations match.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    items.map((item) => (
-                      <TableRow 
-                        key={item.id} 
-                        onClick={() => setSelectedItem(item)}
-                        className={`border-b border-zinc-100/80 cursor-pointer transition-colors ${
-                          selectedItem?.part_number === item.part_number ? 'bg-zinc-50 hover:bg-zinc-100/50' : 'hover:bg-zinc-50/50'
-                        }`}
-                      >
-                        <TableCell className="p-3 text-center">
-                          {item.image_path ? (
-                            <img 
-                              src={`${API_URL}/${item.image_path}`} 
-                              className="w-10 h-10 rounded-md object-cover border border-zinc-200/80 mx-auto" 
-                              alt={item.item_name}
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = '';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-md flex items-center justify-center border border-zinc-200 bg-zinc-50 text-zinc-450 mx-auto">
-                              <ImageIcon size={16} />
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-semibold text-zinc-900 text-xs">{item.part_number}</TableCell>
-                        <TableCell className="text-zinc-700 text-xs font-semibold max-w-[160px] truncate sm:max-w-none">{item.item_name}</TableCell>
-                        <TableCell className="hidden sm:table-cell text-zinc-500 text-xs font-medium">{item.category}</TableCell>
-                        <TableCell className="text-zinc-500 text-xs font-medium">{item.batch_no || '-'}</TableCell>
-                        <TableCell className="text-zinc-550 text-xs font-medium">{item.expiry || '-'}</TableCell>
-                        <TableCell className="text-right text-xs">
-                          <span className={`font-bold ${
-                            item.total_quantity < 0 ? 'text-red-500' :
-                            item.total_quantity < item.min_stock ? 'text-amber-500' : 'text-zinc-900'
-                          }`}>
-                            {item.total_quantity} {item.unit_of_measure}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    items.map((item) => {
+                      const uniqueLocs = getUniqueLocations(item);
+                      const activeLocKey = selectedLocations[item.part_number] || (item.locations?.[0] ? `${item.locations[0].warehouse}|${item.locations[0].bin_location}` : '');
+                      const [activeWh, activeBin] = activeLocKey ? activeLocKey.split('|') : ['', ''];
+                      
+                      const locationStock = item.locations?.filter(l => l.warehouse === activeWh && l.bin_location === activeBin).reduce((sum, l) => sum + l.quantity, 0) || 0;
+                      const locationMatches = item.locations?.filter(l => l.warehouse === activeWh && l.bin_location === activeBin) || [];
+                      const activeBatchKey = selectedBatches[item.part_number] || (locationMatches[0]?.batch_no || '');
+                      const activeBatchRecord = locationMatches.find(l => (l.batch_no || '') === activeBatchKey);
+                      const expiryDate = activeBatchRecord?.expiry || '-';
+                      
+                      return (
+                        <TableRow 
+                          key={item.id} 
+                          onClick={() => setSelectedItem(item)}
+                          className={`border-b border-zinc-100/80 cursor-pointer transition-colors ${
+                            selectedItem?.part_number === item.part_number ? 'bg-zinc-50 hover:bg-zinc-100/50' : 'hover:bg-zinc-50/50'
+                          }`}
+                        >
+                          <TableCell className="text-zinc-500 text-xs font-medium">{item.category}</TableCell>
+                          <TableCell className="font-semibold text-zinc-900 text-xs">{item.part_number}</TableCell>
+                          <TableCell className="text-zinc-700 text-xs font-semibold max-w-[160px] truncate sm:max-w-none">{item.item_name}</TableCell>
+                          <TableCell className="p-2" onClick={(e) => e.stopPropagation()}>
+                            {uniqueLocs.length > 0 ? (
+                              <select
+                                className="p-1 h-7 rounded bg-white border border-zinc-200 text-zinc-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-zinc-950 max-w-[120px] truncate"
+                                value={activeLocKey}
+                                onChange={(e) => handleLocationChange(item.part_number, item, e.target.value)}
+                              >
+                                {uniqueLocs.map((loc) => {
+                                  const key = `${loc.warehouse}|${loc.bin_location}`;
+                                  return (
+                                    <option key={key} value={key}>
+                                      {loc.warehouse} ({loc.bin_location})
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            ) : (
+                              <span className="text-zinc-450 text-xs">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-zinc-650 text-xs font-semibold text-center">
+                            {locationStock}
+                          </TableCell>
+                          <TableCell className="p-2" onClick={(e) => e.stopPropagation()}>
+                            {locationMatches.length > 0 ? (
+                              <select
+                                className="p-1 h-7 rounded bg-white border border-zinc-200 text-zinc-800 text-[11px] focus:outline-none focus:ring-1 focus:ring-zinc-950 max-w-[100px] truncate"
+                                value={activeBatchKey}
+                                onChange={(e) => handleBatchChange(item.part_number, e.target.value)}
+                              >
+                                {locationMatches.map((loc, idx) => {
+                                  const batchVal = loc.batch_no || '';
+                                  return (
+                                    <option key={idx} value={batchVal}>
+                                      {batchVal || 'No Batch'}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            ) : (
+                              <span className="text-zinc-450 text-xs">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-zinc-550 text-xs font-medium">
+                            {expiryDate || '-'}
+                          </TableCell>
+                          <TableCell className="text-right text-xs">
+                            <span className={`font-bold ${
+                              item.total_quantity < 0 ? 'text-red-500' :
+                              item.total_quantity < item.min_stock ? 'text-amber-500' : 'text-zinc-900'
+                            }`}>
+                              {item.total_quantity} {item.unit_of_measure}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-semibold text-zinc-900">
+                            ${(item.selling_price || 0).toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -694,8 +793,8 @@ export default function Inventory() {
           )}
 
           <form onSubmit={handleFormSubmit} className="space-y-4">
-            {/* Row 1: Part Number, Item Name, Item Type */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Row 1: Part Number, Item Name, Item Type, Selling Price */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Part Number (SKU)*</label>
                 <Input
@@ -728,6 +827,18 @@ export default function Inventory() {
                   <option value="non food">Non Food</option>
                   <option value="food">Food</option>
                 </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Selling Price ($)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
+                  placeholder="0.00"
+                  value={sellingPrice}
+                  onChange={(e) => setSellingPrice(e.target.value)}
+                />
               </div>
             </div>
 

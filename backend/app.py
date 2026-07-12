@@ -72,8 +72,9 @@ def init_db():
             image_path TEXT,
             min_stock INTEGER DEFAULT 10,
             item_type TEXT DEFAULT 'non food',
-            batch_no TEXT,
-            expiry TEXT,
+            batch_no TEXT DEFAULT '',
+            expiry TEXT DEFAULT '',
+            selling_price REAL DEFAULT 0.0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -86,8 +87,10 @@ def init_db():
             warehouse TEXT NOT NULL,
             bin_location TEXT NOT NULL,
             quantity INTEGER DEFAULT 0,
+            batch_no TEXT DEFAULT '',
+            expiry TEXT DEFAULT '',
             FOREIGN KEY(part_number) REFERENCES items(part_number) ON DELETE CASCADE,
-            UNIQUE(part_number, warehouse, bin_location)
+            UNIQUE(part_number, warehouse, bin_location, batch_no)
         )
     ''')
     
@@ -141,9 +144,58 @@ def init_db():
     if "item_type" not in columns:
         c.execute("ALTER TABLE items ADD COLUMN item_type TEXT DEFAULT 'non food'")
     if "batch_no" not in columns:
-        c.execute("ALTER TABLE items ADD COLUMN batch_no TEXT")
+        c.execute("ALTER TABLE items ADD COLUMN batch_no TEXT DEFAULT ''")
     if "expiry" not in columns:
-        c.execute("ALTER TABLE items ADD COLUMN expiry TEXT")
+        c.execute("ALTER TABLE items ADD COLUMN expiry TEXT DEFAULT ''")
+    if "selling_price" not in columns:
+        c.execute("ALTER TABLE items ADD COLUMN selling_price REAL DEFAULT 0.0")
+
+    # Migrate stock_balances to support unique batches per location
+    c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_balances'")
+    sb_table_row = c.fetchone()
+    if sb_table_row:
+        table_sql = sb_table_row[0]
+        if "UNIQUE(part_number, warehouse, bin_location)" in table_sql.replace(" ", "") or "UNIQUE(part_number,warehouse,bin_location)" in table_sql.replace(" ", ""):
+            # Recreate table with UNIQUE(part_number, warehouse, bin_location, batch_no)
+            c.execute('''
+                CREATE TABLE IF NOT EXISTS stock_balances_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    part_number TEXT NOT NULL,
+                    warehouse TEXT NOT NULL,
+                    bin_location TEXT NOT NULL,
+                    quantity INTEGER DEFAULT 0,
+                    batch_no TEXT DEFAULT '',
+                    expiry TEXT DEFAULT '',
+                    FOREIGN KEY(part_number) REFERENCES items(part_number) ON DELETE CASCADE,
+                    UNIQUE(part_number, warehouse, bin_location, batch_no)
+                )
+            ''')
+            # Copy existing data
+            c.execute('''
+                INSERT INTO stock_balances_new (id, part_number, warehouse, bin_location, quantity, batch_no, expiry)
+                SELECT sb.id, sb.part_number, sb.warehouse, sb.bin_location, sb.quantity, 
+                       IFNULL(i.batch_no, ''), IFNULL(i.expiry, '')
+                FROM stock_balances sb
+                LEFT JOIN items i ON sb.part_number = i.part_number
+            ''')
+            # Drop old table
+            c.execute("DROP TABLE stock_balances")
+            # Rename new table
+            c.execute("ALTER TABLE stock_balances_new RENAME TO stock_balances")
+            
+    # Always ensure batch_no and expiry columns exist in stock_balances
+    c.execute("PRAGMA table_info(stock_balances)")
+    sb_cols = [row[1] for row in c.fetchall()]
+    if "batch_no" not in sb_cols:
+        c.execute("ALTER TABLE stock_balances ADD COLUMN batch_no TEXT DEFAULT ''")
+    if "expiry" not in sb_cols:
+        c.execute("ALTER TABLE stock_balances ADD COLUMN expiry TEXT DEFAULT ''")
+
+    # Ensure all NULL values are empty strings
+    c.execute("UPDATE items SET batch_no = '' WHERE batch_no IS NULL")
+    c.execute("UPDATE items SET expiry = '' WHERE expiry IS NULL")
+    c.execute("UPDATE stock_balances SET batch_no = '' WHERE batch_no IS NULL")
+    c.execute("UPDATE stock_balances SET expiry = '' WHERE expiry IS NULL")
 
     # Create default user if not exists (username: admin, password: password123)
     c.execute("SELECT id FROM users WHERE username = 'admin'")
@@ -456,6 +508,7 @@ def get_inventory():
             items.item_type,
             items.batch_no,
             items.expiry,
+            items.selling_price,
             IFNULL((SELECT SUM(quantity) FROM stock_balances WHERE stock_balances.part_number = items.part_number), 0) AS total_quantity
         FROM items
         {where_clause}
@@ -481,8 +534,14 @@ def get_inventory():
     items_list = []
     for r in rows:
         # Fetch locations breakdown for this item
-        c.execute("SELECT warehouse, bin_location, quantity FROM stock_balances WHERE part_number = ?", (r["part_number"],))
-        locs = [{"warehouse": l["warehouse"], "bin_location": l["bin_location"], "quantity": l["quantity"]} for l in c.fetchall()]
+        c.execute("SELECT warehouse, bin_location, quantity, batch_no, expiry FROM stock_balances WHERE part_number = ?", (r["part_number"],))
+        locs = [{
+            "warehouse": l["warehouse"], 
+            "bin_location": l["bin_location"], 
+            "quantity": l["quantity"],
+            "batch_no": l["batch_no"] or '',
+            "expiry": l["expiry"] or ''
+        } for l in c.fetchall()]
         
         items_list.append({
             "id": r["id"],
@@ -497,7 +556,8 @@ def get_inventory():
             "locations": locs,
             "item_type": r["item_type"],
             "batch_no": r["batch_no"],
-            "expiry": r["expiry"]
+            "expiry": r["expiry"],
+            "selling_price": r["selling_price"]
         })
         
     conn.close()
@@ -523,8 +583,14 @@ def get_item_by_part_number(part_number):
         return jsonify({"error": "Item not found"}), 404
         
     # Get Locations
-    c.execute("SELECT warehouse, bin_location, quantity FROM stock_balances WHERE part_number = ?", (part_number,))
-    locs = [{"warehouse": l["warehouse"], "bin_location": l["bin_location"], "quantity": l["quantity"]} for l in c.fetchall()]
+    c.execute("SELECT warehouse, bin_location, quantity, batch_no, expiry FROM stock_balances WHERE part_number = ?", (part_number,))
+    locs = [{
+        "warehouse": l["warehouse"], 
+        "bin_location": l["bin_location"], 
+        "quantity": l["quantity"],
+        "batch_no": l["batch_no"] or '',
+        "expiry": l["expiry"] or ''
+    } for l in c.fetchall()]
     
     item_details = {
         "id": item["id"],
@@ -538,7 +604,8 @@ def get_item_by_part_number(part_number):
         "locations": locs,
         "item_type": item["item_type"],
         "batch_no": item["batch_no"],
-        "expiry": item["expiry"]
+        "expiry": item["expiry"],
+        "selling_price": item["selling_price"]
     }
     
     conn.close()
@@ -558,6 +625,11 @@ def add_inventory_item():
     item_type = request.form.get("item_type", "non food").strip().lower()
     batch_no = request.form.get("batch_no", "").strip()
     expiry = request.form.get("expiry", "").strip()
+    
+    try:
+        selling_price = float(request.form.get("selling_price", "0.0") or 0.0)
+    except (ValueError, TypeError):
+        selling_price = 0.0
     
     # Warehouse & quantity for initial stock addition (optional)
     warehouse = request.form.get("warehouse", "").strip()
@@ -602,10 +674,10 @@ def add_inventory_item():
             # Update master details
             c.execute('''
                 UPDATE items 
-                SET item_name = ?, description = ?, category = ?, unit_of_measure = ?, min_stock = ?, image_path = ?, item_type = ?, batch_no = ?, expiry = ?
+                SET item_name = ?, description = ?, category = ?, unit_of_measure = ?, min_stock = ?, image_path = ?, item_type = ?, batch_no = ?, expiry = ?, selling_price = ?
                 WHERE part_number = ?
             ''', (item_name, description, category, unit_of_measure, min_stock, image_path, item_type, 
-                  batch_no if item_type == "food" else None, expiry if item_type == "food" else None, part_number))
+                  batch_no if item_type == "food" else '', expiry if item_type == "food" else '', selling_price, part_number))
             
             # Log UPDATION in journal
             voucher_upd = generate_voucher_number("STJ-UPD")
@@ -616,10 +688,10 @@ def add_inventory_item():
         else:
             # Insert master item
             c.execute('''
-                INSERT INTO items (part_number, item_name, description, category, unit_of_measure, min_stock, image_path, item_type, batch_no, expiry)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO items (part_number, item_name, description, category, unit_of_measure, min_stock, image_path, item_type, batch_no, expiry, selling_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (part_number, item_name, description, category, unit_of_measure, min_stock, image_path, item_type,
-                  batch_no if item_type == "food" else None, expiry if item_type == "food" else None))
+                  batch_no if item_type == "food" else '', expiry if item_type == "food" else '', selling_price))
             
             # Log CREATION in journal
             voucher_cre = generate_voucher_number("STJ-CRE")
@@ -631,11 +703,13 @@ def add_inventory_item():
         # 2. Add stock balance if location specified
         if warehouse and bin_location and quantity > 0:
             c.execute('''
-                INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(part_number, warehouse, bin_location) 
+                INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity, batch_no, expiry)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(part_number, warehouse, bin_location, batch_no) 
                 DO UPDATE SET quantity = quantity + excluded.quantity
-            ''', (part_number, warehouse, bin_location, quantity))
+            ''', (part_number, warehouse, bin_location, quantity,
+                  batch_no if item_type == "food" else '',
+                  expiry if item_type == "food" else ''))
             
             # Log in Stock Journal (tagging logged-in user name)
             voucher = generate_voucher_number("STJ-ADD")
@@ -693,9 +767,9 @@ def bulk_addition():
             
             # Upsert stock balance
             c.execute('''
-                INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(part_number, warehouse, bin_location) 
+                INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity, batch_no, expiry)
+                VALUES (?, ?, ?, ?, '', '')
+                ON CONFLICT(part_number, warehouse, bin_location, batch_no) 
                 DO UPDATE SET quantity = quantity + excluded.quantity
             ''', (part_number, warehouse, bin_location, quantity))
             
@@ -725,6 +799,7 @@ def bulk_addition():
 def delete_location_stock(part_number):
     warehouse = request.args.get("warehouse", "").strip()
     bin_location = request.args.get("bin_location", "").strip()
+    batch_no = request.args.get("batch_no", "").strip()
     
     if not warehouse or not bin_location:
         return jsonify({"error": "Warehouse and Bin parameters are required"}), 400
@@ -733,11 +808,15 @@ def delete_location_stock(part_number):
     c = conn.cursor()
     
     # Check current quantity
-    c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
-              (part_number, warehouse, bin_location))
+    if batch_no:
+        c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ? AND batch_no = ?", 
+                  (part_number, warehouse, bin_location, batch_no))
+    else:
+        c.execute("SELECT SUM(quantity) as quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                  (part_number, warehouse, bin_location))
     row = c.fetchone()
     
-    if not row:
+    if not row or row["quantity"] is None:
         conn.close()
         return jsonify({"error": "Stock location not found for this part number"}), 404
         
@@ -747,15 +826,19 @@ def delete_location_stock(part_number):
         c.execute("BEGIN TRANSACTION")
         
         # Delete location record
-        c.execute("DELETE FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
-                  (part_number, warehouse, bin_location))
+        if batch_no:
+            c.execute("DELETE FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ? AND batch_no = ?", 
+                      (part_number, warehouse, bin_location, batch_no))
+        else:
+            c.execute("DELETE FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                      (part_number, warehouse, bin_location))
         
         # Log DELETION in journal
         voucher = generate_voucher_number("STJ-DEL")
         c.execute('''
             INSERT INTO stock_journal (voucher_number, transaction_type, part_number, quantity, from_warehouse, from_bin, user_name, remarks)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (voucher, 'DELETION', part_number, qty, warehouse, bin_location, request.user["full_name"], "Location stock deleted permanently"))
+        ''', (voucher, 'DELETION', part_number, qty, warehouse, bin_location, request.user["full_name"], f"Location stock deleted permanently (batch: {batch_no})"))
         
         c.execute("COMMIT")
         conn.commit()
@@ -1354,8 +1437,8 @@ def upload_reconciliation_excel():
                       (part_number, item_name, unit_of_measure))
             
             # 4. Insert stock balance
-            c.execute("INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity) VALUES (?, ?, ?, ?)"
-                      "ON CONFLICT(part_number, warehouse, bin_location) DO UPDATE SET quantity = quantity + excluded.quantity",
+            c.execute("INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity, batch_no, expiry) VALUES (?, ?, ?, ?, '', '')"
+                      "ON CONFLICT(part_number, warehouse, bin_location, batch_no) DO UPDATE SET quantity = quantity + excluded.quantity",
                       (part_number, wh_code, bin_code, quantity))
                       
             # 5. Log in Stock Journal (as ADDITION)
