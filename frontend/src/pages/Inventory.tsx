@@ -12,9 +12,10 @@ import {
   X,
   Edit,
   Printer,
+  ChevronDown,
+  Upload,
   Copy,
-  MoreHorizontal,
-  ChevronDown
+  MoreHorizontal
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -153,6 +154,39 @@ export default function Inventory() {
     setImageFile(null);
     setIsEditing(false);
     setIsAddModalOpen(true);
+  };
+
+  const [uploadingExcel, setUploadingExcel] = useState(false);
+
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Reset file input value
+    e.target.value = '';
+    
+    setUploadingExcel(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const res = await fetch(`${API_URL}/api/inventory/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to upload spreadsheet.');
+      }
+      
+      alert(data.success || 'Bulk upload completed successfully!');
+      fetchInventory();
+    } catch (err: any) {
+      alert(err.message || 'Error occurred during excel import.');
+    } finally {
+      setUploadingExcel(false);
+    }
   };
 
   // Stats
@@ -409,9 +443,26 @@ export default function Inventory() {
       {/* Title Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900">Inventory</h1>
-        <Button className="bg-zinc-955 hover:bg-zinc-900 text-white font-semibold text-xs h-9 rounded-md shadow-sm" onClick={handleAddClick}>
-          <Plus className="mr-1.5 h-4 w-4" /> Add Stock Item
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            id="bulk-excel-upload"
+            accept=".xlsx, .xls"
+            className="hidden"
+            onChange={handleExcelUpload}
+          />
+          <Button 
+            variant="outline" 
+            className="border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-semibold text-xs h-9 rounded-md shadow-sm"
+            onClick={() => document.getElementById('bulk-excel-upload')?.click()}
+            disabled={uploadingExcel}
+          >
+            <Upload className="mr-1.5 h-4 w-4 text-zinc-500" /> {uploadingExcel ? 'Uploading...' : 'Bulk Excel Upload'}
+          </Button>
+          <Button className="bg-zinc-955 hover:bg-zinc-900 text-white font-semibold text-xs h-9 rounded-md shadow-sm" onClick={handleAddClick}>
+            <Plus className="mr-1.5 h-4 w-4" /> Add Stock Item
+          </Button>
+        </div>
       </div>
 
       {/* Mate Metrics cards row */}

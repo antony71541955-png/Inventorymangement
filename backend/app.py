@@ -1595,5 +1595,173 @@ def get_movement_history():
     conn.close()
     return jsonify(history), 200
 
+@app.route('/api/inventory/upload', methods=['POST'])
+@login_required
+def upload_excel_inventory():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in the request"}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+        return jsonify({"error": "Only Excel (.xlsx, .xls) files are supported."}), 400
+        
+    try:
+        # Read the file
+        file_bytes = file.read()
+        df = pd.read_excel(io.BytesIO(file_bytes))
+        
+        # Clean column names to be case-insensitive and stripped
+        df.columns = [str(c).strip() for c in df.columns]
+        
+        # Map required columns
+        col_mappings = {
+            'group': ['group', 'category', 'item group'],
+            'part_number': ['part number', 'part_number', 'sku', 'item code', 'code'],
+            'item_name': ['item name', 'item_name', 'product name', 'description', 'name'],
+            'location': ['location', 'warehouse', 'bin'],
+            'location_stock': ['location stock', 'location_stock', 'stock', 'qty', 'quantity', 'balance'],
+            'selling_price': ['selling price', 'selling_price', 'price', 'rate']
+        }
+        
+        def find_col(keys):
+            for key in keys:
+                for col in df.columns:
+                    if col.lower() == key.lower():
+                        return col
+            return None
+            
+        group_col = find_col(col_mappings['group'])
+        part_number_col = find_col(col_mappings['part_number'])
+        item_name_col = find_col(col_mappings['item_name'])
+        location_col = find_col(col_mappings['location'])
+        location_stock_col = find_col(col_mappings['location_stock'])
+        selling_price_col = find_col(col_mappings['selling_price'])
+        
+        if not part_number_col or not item_name_col:
+            return jsonify({"error": "The Excel sheet must contain 'Part Number' and 'Item Name' columns."}), 400
+            
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        success_count = 0
+        errors = []
+        
+        def parse_location(loc_str):
+            loc_str = str(loc_str).strip()
+            if not loc_str or loc_str.lower() == 'nan':
+                return 'MAIN', 'DEFAULT'
+            if '-' in loc_str:
+                parts = [p.strip() for p in loc_str.split('-', 1)]
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    return parts[0], parts[1]
+            elif ' ' in loc_str:
+                parts = [p.strip() for p in loc_str.split(' ', 1)]
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    return parts[0], parts[1]
+            return loc_str, 'DEFAULT'
+            
+        c.execute("BEGIN TRANSACTION")
+        voucher = generate_voucher_number("STJ-BULK-XLS")
+        
+        for idx, row in df.iterrows():
+            # If part number parsed as float, e.g., 200275.0, cast to clean int string first
+            raw_part = row[part_number_col]
+            if pd.notna(raw_part):
+                if isinstance(raw_part, (int, float)):
+                    part_number = str(int(raw_part)).strip().upper()
+                else:
+                    part_number = str(raw_part).strip().upper()
+                    if part_number.endswith('.0'):
+                        part_number = part_number[:-2]
+            else:
+                part_number = ''
+                
+            item_name = str(row[item_name_col]).strip() if pd.notna(row[item_name_col]) else ''
+            
+            if not part_number or part_number.lower() == 'nan' or not item_name or item_name.lower() == 'nan':
+                errors.append(f"Row {idx+2}: Missing Part Number or Item Name.")
+                continue
+                
+            group = str(row[group_col]).strip() if (group_col and pd.notna(row[group_col])) else 'Uncategorized'
+            if group.lower() == 'nan':
+                group = 'Uncategorized'
+                
+            selling_price = 0.0
+            if selling_price_col and pd.notna(row[selling_price_col]):
+                try:
+                    selling_price = float(row[selling_price_col])
+                except ValueError:
+                    pass
+                    
+            location_val = str(row[location_col]).strip() if (location_col and pd.notna(row[location_col])) else 'MAIN'
+            wh_code, bin_code = parse_location(location_val)
+            
+            quantity = 0
+            if location_stock_col and pd.notna(row[location_stock_col]):
+                try:
+                    quantity = int(float(row[location_stock_col]))
+                except ValueError:
+                    pass
+            
+            # 1. Upsert Item
+            c.execute('''
+                INSERT INTO items (part_number, item_name, category, unit_of_measure, min_stock, item_type, batch_no, expiry, selling_price)
+                VALUES (?, ?, ?, 'pcs', 10, 'non food', '', '', ?)
+                ON CONFLICT(part_number) 
+                DO UPDATE SET item_name = excluded.item_name, category = excluded.category, selling_price = excluded.selling_price
+            ''', (part_number, item_name, group, selling_price))
+            
+            # 2. Upsert stock_balances if quantity specified
+            if quantity > 0:
+                # 2.1 Upsert Warehouse master
+                c.execute("SELECT id FROM warehouses WHERE code = ?", (wh_code,))
+                wh_row = c.fetchone()
+                if not wh_row:
+                    c.execute("INSERT INTO warehouses (code, name) VALUES (?, ?)", (wh_code, f"{wh_code} Warehouse"))
+                    wh_id = c.lastrowid
+                else:
+                    wh_id = wh_row["id"]
+                    
+                # 2.2 Upsert Bin master
+                c.execute("SELECT id FROM bins WHERE warehouse_id = ? AND code = ?", (wh_id, bin_code))
+                bin_row = c.fetchone()
+                if not bin_row:
+                    c.execute("INSERT INTO bins (warehouse_id, code) VALUES (?, ?)", (wh_id, bin_code))
+                
+                # 2.3 Upsert stock balance record
+                c.execute('''
+                    INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity, batch_no, expiry)
+                    VALUES (?, ?, ?, ?, '', '')
+                    ON CONFLICT(part_number, warehouse, bin_location, batch_no) 
+                    DO UPDATE SET quantity = quantity + excluded.quantity
+                ''', (part_number, wh_code, bin_code, quantity))
+                
+                # 2.4 Log addition in journal
+                c.execute('''
+                    INSERT INTO stock_journal (voucher_number, transaction_type, part_number, quantity, to_warehouse, to_bin, user_name, remarks)
+                    VALUES (?, 'ADDITION', ?, ?, ?, ?, ?, 'Excel Bulk Upload Import')
+                ''', (voucher, part_number, quantity, wh_code, bin_code, request.user["full_name"]))
+                
+            success_count += 1
+            
+        c.execute("COMMIT")
+        conn.commit()
+        conn.close()
+        return jsonify({
+            "success": f"Successfully processed {success_count} item rows",
+            "errors": errors
+        }), 200
+        
+    except Exception as e:
+        if 'conn' in locals():
+            try:
+                c.execute("ROLLBACK")
+                conn.close()
+            except Exception:
+                pass
+        return jsonify({"error": f"Failed to process Excel file: {str(e)}"}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
