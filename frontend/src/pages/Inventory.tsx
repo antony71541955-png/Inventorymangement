@@ -116,6 +116,7 @@ export default function Inventory() {
   };
 
   const [isEditing, setIsEditing] = useState(false);
+  const [isDetailsMinimized, setIsDetailsMinimized] = useState(false);
 
   const handleEditClick = () => {
     if (!selectedItem) return;
@@ -494,22 +495,35 @@ export default function Inventory() {
           <span className="text-zinc-400 pb-3 cursor-pointer">+</span>
         </div>
         
-        {/* Compact Table Search Input */}
-        <div className="relative w-48 mb-2">
-          <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-550" />
-          <Input
-            type="text"
-            className="pl-8 h-7.5 bg-white border-zinc-200 text-xs text-zinc-800 rounded-md focus-visible:ring-zinc-900"
-            placeholder="Search items"
-            value={search}
-            onChange={handleSearchChange}
-          />
+        <div className="flex items-center gap-2 mb-2">
+          {isDetailsMinimized && selectedItem && (
+            <Button 
+              variant="outline" 
+              className="h-7.5 border-zinc-200 text-zinc-700 text-xs px-2.5 rounded-md hover:bg-zinc-50"
+              onClick={() => setIsDetailsMinimized(false)}
+            >
+              <ChevronLeft size={12} className="mr-1" /> Show Product Info
+            </Button>
+          )}
+          {/* Compact Table Search Input */}
+          <div className="relative w-48">
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-550" />
+            <Input
+              type="text"
+              className="pl-8 h-7.5 bg-white border-zinc-200 text-xs text-zinc-800 rounded-md focus-visible:ring-zinc-900"
+              placeholder="Search items"
+              value={search}
+              onChange={handleSearchChange}
+            />
+          </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* WMS Clean Table Card (takes 2/3 width) */}
-        <Card className="lg:col-span-2 bg-white border border-zinc-200/80 rounded-xl shadow-sm overflow-hidden">
+        {/* WMS Clean Table Card (takes 2/3 width or full width when minimized) */}
+        <Card className={`lg:col-span-2 bg-white border border-zinc-200/80 rounded-xl shadow-sm overflow-hidden transition-all duration-300 ${
+          isDetailsMinimized ? 'lg:col-span-3' : 'lg:col-span-2'
+        }`}>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <Table>
@@ -560,7 +574,10 @@ export default function Inventory() {
                       return (
                         <TableRow 
                           key={item.id} 
-                          onClick={() => setSelectedItem(item)}
+                          onClick={() => {
+                            setSelectedItem(item);
+                            setIsDetailsMinimized(false); // auto-expand to show new selection
+                          }}
                           className={`border-b border-zinc-100/80 cursor-pointer transition-colors ${
                             selectedItem?.part_number === item.part_number ? 'bg-zinc-50 hover:bg-zinc-100/50' : 'hover:bg-zinc-50/50'
                           }`}
@@ -660,16 +677,21 @@ export default function Inventory() {
           </CardContent>
         </Card>
 
-        {/* Selected Product info card drawer (takes 1/3 width) */}
-        <Card className="bg-white border border-zinc-200/80 rounded-xl shadow-sm overflow-hidden p-6 space-y-6">
+        {/* Selected Product info card drawer (takes 1/3 width, hidden when minimized) */}
+        {!isDetailsMinimized && (
+          <Card className="bg-white border border-zinc-200/80 rounded-xl shadow-sm overflow-hidden p-6 space-y-6 transition-all duration-300">
           {selectedItem ? (
             <div className="space-y-6">
               {/* Product title */}
               <div className="space-y-4">
                 <div className="flex justify-between items-start gap-4">
-                  <h2 className="text-lg font-bold text-zinc-900 leading-snug tracking-tight">{selectedItem.item_name}</h2>
-                  <button className="text-zinc-450 hover:text-zinc-600 shrink-0">
-                    <span className="text-xs">⤢</span>
+                  <h2 className="text-lg font-bold text-zinc-900 leading-snug tracking-tight truncate flex-1">{selectedItem.item_name}</h2>
+                  <button 
+                    onClick={() => setIsDetailsMinimized(true)}
+                    className="text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 p-1 rounded shrink-0 transition-colors"
+                    title="Minimize panel"
+                  >
+                    <ChevronRight size={16} />
                   </button>
                 </div>
 
@@ -864,6 +886,7 @@ export default function Inventory() {
             </div>
           )}
         </Card>
+        )}
       </div>
 
       {/* Add Item Dialog Modal */}
