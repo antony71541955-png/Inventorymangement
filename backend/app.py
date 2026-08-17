@@ -2061,8 +2061,12 @@ def create_picklist():
                 return jsonify({"error": f"Quantity must be greater than 0 for {part_number}"}), 400
                 
             # Backend Validation: Check available quantity
-            c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
-                      (part_number, warehouse, bin_location))
+            if bin_location is None:
+                c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location IS NULL", 
+                          (part_number, warehouse))
+            else:
+                c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                          (part_number, warehouse, bin_location))
             stock = c.fetchone()
             
             if not stock:
@@ -2193,8 +2197,12 @@ def update_picklist(id):
                 return jsonify({"error": f"Quantity must be greater than 0 for {part_number}"}), 400
                 
             # Backend Validation: Check available quantity
-            c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
-                      (part_number, warehouse, bin_location))
+            if bin_location is None:
+                c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location IS NULL", 
+                          (part_number, warehouse))
+            else:
+                c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                          (part_number, warehouse, bin_location))
             stock = c.fetchone()
             
             if not stock:
