@@ -59,9 +59,15 @@ export default function Picklist() {
   const [searchResults, setSearchResults] = useState<InventoryItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   
-  // Selected Inventories State
   const [selectedInventories, setSelectedInventories] = useState<InventoryItem[]>([]);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  
+  const [itemStatuses, setItemStatuses] = useState<Record<string, {
+    status: string;
+    reason?: string;
+    actualWarehouse?: string;
+    actualBin?: string;
+  }>>({});
   
   // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -201,6 +207,7 @@ export default function Picklist() {
     setEditingPicklistId(null);
     setEditingPicklistTransferStatus(null);
     setEditingPicklistRejectionReason(null);
+    setItemStatuses({});
   };
 
   const handleEditPicklist = async (picklist: PicklistData) => {
@@ -222,9 +229,9 @@ export default function Picklist() {
       if (res.ok) {
         const data = await res.json();
         
-        // Group items by part_number
         const itemsMap = new Map<string, InventoryItem>();
         const qtyMap: Record<string, number> = {};
+        const newStatuses: Record<string, any> = {};
         
         for (const pi of data.items) {
           if (!itemsMap.has(pi.part_number)) {
@@ -238,6 +245,12 @@ export default function Picklist() {
           }
           const key = `${pi.part_number}|${pi.warehouse}|${pi.bin_location}`;
           qtyMap[key] = pi.required_quantity;
+          newStatuses[key] = {
+            status: pi.transfer_status || 'Pending',
+            reason: pi.transfer_rejection_reason,
+            actualWarehouse: pi.actual_warehouse,
+            actualBin: pi.actual_bin_location
+          };
         }
         
         // Now fetch full locations for these items
@@ -250,6 +263,7 @@ export default function Picklist() {
           });
         }
         
+        setItemStatuses(newStatuses);
         setSelectedInventories(newSelectedInventories);
         setQuantities(qtyMap);
       }
@@ -640,20 +654,41 @@ export default function Picklist() {
                                       value={val}
                                       onChange={(e) => handleQuantityChange(item.part_number, loc.warehouse, loc.bin_location, e.target.value, loc.quantity)}
                                       className="w-full px-3 py-1.5 border border-zinc-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                      placeholder="0"
+                                      disabled={!!editingPicklistId}
                                     />
                                   </td>
                                   {editingPicklistId && (
                                     <td className="px-4 py-3">
-                                      {val !== '' && (
-                                        <span className={cn(
-                                          "text-[10px] font-medium px-2 py-0.5 rounded-full w-fit whitespace-nowrap",
-                                          editingPicklistTransferStatus === 'Transfer Possible' ? "bg-emerald-100 text-emerald-800" :
-                                          editingPicklistTransferStatus === 'Transfer Not Possible' ? "bg-red-100 text-red-800" :
-                                          "bg-blue-100 text-blue-800"
-                                        )}>
-                                          {editingPicklistTransferStatus || 'Pending Decision'}
-                                        </span>
+                                      {itemStatuses[key] ? (
+                                        <div className="flex flex-col gap-1">
+                                          {itemStatuses[key].status === 'Possible' ? (
+                                            <>
+                                              <span className="inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800">
+                                                Possible
+                                              </span>
+                                              {(itemStatuses[key].actualWarehouse !== loc.warehouse || itemStatuses[key].actualBin !== loc.bin_location) && (
+                                                <span className="text-[10px] text-zinc-500">
+                                                  from: <strong>{itemStatuses[key].actualWarehouse}</strong> / <strong>{itemStatuses[key].actualBin}</strong>
+                                                </span>
+                                              )}
+                                            </>
+                                          ) : itemStatuses[key].status === 'Not Possible' ? (
+                                            <>
+                                              <span className="inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-800">
+                                                Not Possible
+                                              </span>
+                                              <span className="text-[10px] text-zinc-500 max-w-[120px] truncate" title={itemStatuses[key].reason}>
+                                                {itemStatuses[key].reason}
+                                              </span>
+                                            </>
+                                          ) : (
+                                            <span className="inline-flex w-fit items-center px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">
+                                              Pending
+                                            </span>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-zinc-400 text-xs">-</span>
                                       )}
                                     </td>
                                   )}

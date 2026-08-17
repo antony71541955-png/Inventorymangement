@@ -5,14 +5,10 @@ import {
   Bell, 
   CheckCircle, 
   XCircle, 
-  AlertCircle,
   Package,
-  ArrowRight,
-  Clock,
   X
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 interface Notification {
   id: number;
@@ -33,16 +29,20 @@ interface Picklist {
 }
 
 interface PicklistItem {
-  id: number;
+  item_id: number;
   part_number: string;
   item_name: string;
   warehouse: string;
   bin_location: string;
   required_quantity: number;
+  transfer_status?: string;
+  transfer_rejection_reason?: string;
+  actual_warehouse?: string;
+  actual_bin_location?: string;
 }
 
 export default function Notifications() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const navigate = useNavigate();
   
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -53,8 +53,11 @@ export default function Notifications() {
   const [picklistData, setPicklistData] = useState<Picklist | null>(null);
   const [loadingPicklist, setLoadingPicklist] = useState(false);
   
-  const [isRejecting, setIsRejecting] = useState(false);
+  const [decisionItemId, setDecisionItemId] = useState<number | null>(null);
+  const [decisionType, setDecisionType] = useState<'possible' | 'not_possible' | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [actualWarehouse, setActualWarehouse] = useState("");
+  const [actualBin, setActualBin] = useState("");
   const [submittingDecision, setSubmittingDecision] = useState(false);
 
   useEffect(() => {
@@ -100,8 +103,7 @@ export default function Notifications() {
       setSelectedNotification(notif);
       setLoadingPicklist(true);
       setPicklistData(null);
-      setIsRejecting(false);
-      setRejectionReason("");
+      resetDecisionState();
       
       try {
         const res = await fetch(`${API_URL}/api/picklists/${notif.related_entity_id}`, {
@@ -119,45 +121,78 @@ export default function Notifications() {
     }
   };
 
-  const handleDecision = async (decision: 'possible' | 'not_possible') => {
-    if (decision === 'not_possible' && !rejectionReason.trim()) {
+  const resetDecisionState = () => {
+    setDecisionItemId(null);
+    setDecisionType(null);
+    setRejectionReason("");
+    setActualWarehouse("");
+    setActualBin("");
+  };
+
+  const handleOpenDecision = (item: PicklistItem, type: 'possible' | 'not_possible') => {
+    setDecisionItemId(item.item_id);
+    setDecisionType(type);
+    if (type === 'possible') {
+      setActualWarehouse(item.warehouse);
+      setActualBin(item.bin_location);
+    } else {
+      setRejectionReason("");
+    }
+  };
+
+  const submitItemDecision = async () => {
+    if (decisionType === 'not_possible' && !rejectionReason.trim()) {
       alert("Please enter a reason.");
       return;
     }
+    if (decisionType === 'possible' && (!actualWarehouse.trim() || !actualBin.trim())) {
+      alert("Please provide the actual warehouse and bin location.");
+      return;
+    }
     
-    if (!picklistData) return;
+    if (!picklistData || !decisionItemId) return;
     
     setSubmittingDecision(true);
     try {
-      const res = await fetch(`${API_URL}/api/picklists/${picklistData.id}/decision`, {
+      const res = await fetch(`${API_URL}/api/picklists/${picklistData.id}/items/${decisionItemId}/decision`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}` 
         },
-        body: JSON.stringify({ decision, reason: rejectionReason })
+        body: JSON.stringify({ 
+          decision: decisionType, 
+          reason: rejectionReason,
+          actual_warehouse: actualWarehouse,
+          actual_bin_location: actualBin
+        })
       });
       
       if (res.ok) {
-        setSelectedNotification(null);
-        if (decision === 'possible') {
-          // Navigate to stock transfer with pre-filled items
-          navigate('/transfer', { 
-            state: { 
-              prefillItems: picklistData.items.map(item => ({
-                part_number: item.part_number,
-                item_name: item.item_name,
-                from_warehouse: item.warehouse,
-                from_bin: item.bin_location,
-                quantity: item.required_quantity
-              })),
-              picklist_id: picklistData.id
-            } 
-          });
-        } else {
-          // Just close modal if rejected
-          alert("Decision submitted successfully.");
-        }
+        const data = await res.json();
+        
+        // Update local picklist state
+        setPicklistData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            transfer_status: data.overall_status,
+            items: prev.items.map(item => {
+              if (item.item_id === decisionItemId) {
+                return {
+                  ...item,
+                  transfer_status: data.status,
+                  transfer_rejection_reason: decisionType === 'not_possible' ? rejectionReason : undefined,
+                  actual_warehouse: decisionType === 'possible' ? actualWarehouse : undefined,
+                  actual_bin_location: decisionType === 'possible' ? actualBin : undefined
+                };
+              }
+              return item;
+            })
+          };
+        });
+        
+        resetDecisionState();
       } else {
         alert("Failed to submit decision.");
       }
@@ -166,6 +201,32 @@ export default function Notifications() {
     } finally {
       setSubmittingDecision(false);
     }
+  };
+
+  const proceedToStockTransfer = () => {
+    if (!picklistData) return;
+    
+    // Find all possible items
+    const possibleItems = picklistData.items.filter(item => item.transfer_status === 'Possible');
+    
+    if (possibleItems.length === 0) {
+      alert("No items were approved for transfer.");
+      return;
+    }
+    
+    // Navigate to stock transfer with pre-filled items
+    navigate('/transfer', { 
+      state: { 
+        prefillItems: possibleItems.map(item => ({
+          part_number: item.part_number,
+          item_name: item.item_name,
+          from_warehouse: item.actual_warehouse || item.warehouse,
+          from_bin: item.actual_bin_location || item.bin_location,
+          quantity: item.required_quantity
+        })),
+        picklist_id: picklistData.id
+      } 
+    });
   };
 
   return (
@@ -223,7 +284,7 @@ export default function Notifications() {
       {/* Decision Modal */}
       {selectedNotification && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between bg-zinc-50/50">
               <h2 className="text-lg font-semibold text-zinc-900">Stock Transfer Request</h2>
               <button 
@@ -252,94 +313,158 @@ export default function Notifications() {
                     </div>
                     <div>
                       <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">Current Transfer Status</p>
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                        picklistData.transfer_status === 'Transfer Decisions Made' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                      }`}>
                         {picklistData.transfer_status || 'Pending Transfer Decision'}
                       </span>
                     </div>
                   </div>
                   
                   <div>
-                    <h3 className="text-sm font-semibold text-zinc-900 mb-3 flex items-center gap-2">
-                      <Package size={16} className="text-zinc-500" />
-                      Requested Items
-                    </h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-zinc-900 flex items-center gap-2">
+                        <Package size={16} className="text-zinc-500" />
+                        Requested Items
+                      </h3>
+                      {picklistData.items.some(i => i.transfer_status === 'Possible') && (
+                        <Button onClick={proceedToStockTransfer} size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                          Proceed to Stock Transfer
+                        </Button>
+                      )}
+                    </div>
                     <div className="border border-zinc-200 rounded-lg overflow-x-auto">
-                      <table className="w-full min-w-[600px] text-sm text-left">
+                      <table className="w-full min-w-[800px] text-sm text-left">
                         <thead className="text-xs text-zinc-500 bg-zinc-50 border-b border-zinc-200">
                           <tr>
-                            <th className="px-4 py-2 font-medium">Part Number</th>
-                            <th className="px-4 py-2 font-medium">From Warehouse</th>
-                            <th className="px-4 py-2 font-medium">From Bin</th>
-                            <th className="px-4 py-2 font-medium text-right">Required Qty</th>
+                            <th className="px-4 py-3 font-medium">Part Number</th>
+                            <th className="px-4 py-3 font-medium">Requested Location</th>
+                            <th className="px-4 py-3 font-medium text-right">Qty</th>
+                            <th className="px-4 py-3 font-medium text-center">Status</th>
+                            <th className="px-4 py-3 font-medium text-right">Action</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
-                          {picklistData.items.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-zinc-50">
-                              <td className="px-4 py-2 font-medium text-zinc-900">{item.part_number}</td>
-                              <td className="px-4 py-2 text-zinc-600">{item.warehouse}</td>
-                              <td className="px-4 py-2 text-zinc-600">{item.bin_location}</td>
-                              <td className="px-4 py-2 font-semibold text-zinc-900 text-right">{item.required_quantity}</td>
-                            </tr>
+                          {picklistData.items.map((item) => (
+                            <React.Fragment key={item.item_id}>
+                              <tr className="hover:bg-zinc-50/50">
+                                <td className="px-4 py-3 font-medium text-zinc-900">
+                                  {item.part_number}
+                                  <div className="text-xs text-zinc-500 font-normal">{item.item_name}</div>
+                                </td>
+                                <td className="px-4 py-3 text-zinc-600">
+                                  {item.warehouse} / {item.bin_location}
+                                </td>
+                                <td className="px-4 py-3 font-semibold text-zinc-900 text-right">{item.required_quantity}</td>
+                                <td className="px-4 py-3 text-center">
+                                  {item.transfer_status === 'Possible' ? (
+                                    <div className="flex flex-col items-center">
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800">
+                                        Possible
+                                      </span>
+                                      {(item.actual_warehouse !== item.warehouse || item.actual_bin_location !== item.bin_location) && (
+                                        <span className="text-[10px] text-zinc-500 mt-1">
+                                          from {item.actual_warehouse}/{item.actual_bin_location}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : item.transfer_status === 'Not Possible' ? (
+                                    <div className="flex flex-col items-center">
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-red-100 text-red-800">
+                                        Not Possible
+                                      </span>
+                                      <span className="text-[10px] text-zinc-500 mt-1 max-w-[120px] truncate" title={item.transfer_rejection_reason}>
+                                        {item.transfer_rejection_reason}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800">
+                                      Pending
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <Button 
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                                      onClick={() => handleOpenDecision(item, 'possible')}
+                                      disabled={decisionItemId === item.item_id}
+                                    >
+                                      <CheckCircle size={14} className="mr-1" /> Yes
+                                    </Button>
+                                    <Button 
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                                      onClick={() => handleOpenDecision(item, 'not_possible')}
+                                      disabled={decisionItemId === item.item_id}
+                                    >
+                                      <XCircle size={14} className="mr-1" /> No
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                              
+                              {/* Decision Inline Form */}
+                              {decisionItemId === item.item_id && (
+                                <tr className="bg-blue-50/50">
+                                  <td colSpan={5} className="px-4 py-4 border-b border-blue-100">
+                                    <div className="flex items-start gap-4">
+                                      <div className="flex-1">
+                                        {decisionType === 'possible' ? (
+                                          <div className="flex gap-4">
+                                            <div className="flex-1 space-y-1 text-left">
+                                              <label className="text-xs font-medium text-zinc-700">Actual Source Warehouse</label>
+                                              <input 
+                                                type="text" 
+                                                value={actualWarehouse}
+                                                onChange={e => setActualWarehouse(e.target.value)}
+                                                className="w-full text-sm rounded border-zinc-300 p-2"
+                                              />
+                                            </div>
+                                            <div className="flex-1 space-y-1 text-left">
+                                              <label className="text-xs font-medium text-zinc-700">Actual Source Bin</label>
+                                              <input 
+                                                type="text" 
+                                                value={actualBin}
+                                                onChange={e => setActualBin(e.target.value)}
+                                                className="w-full text-sm rounded border-zinc-300 p-2"
+                                              />
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div className="space-y-1 text-left">
+                                            <label className="text-xs font-medium text-red-700">Reason for Rejection *</label>
+                                            <input 
+                                              type="text" 
+                                              value={rejectionReason}
+                                              onChange={e => setRejectionReason(e.target.value)}
+                                              placeholder="Why is this transfer not possible?"
+                                              className="w-full text-sm rounded border-red-200 focus:border-red-500 focus:ring-red-500 p-2"
+                                            />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex items-end gap-2 self-end">
+                                        <Button size="sm" variant="outline" onClick={resetDecisionState} className="h-9">
+                                          Cancel
+                                        </Button>
+                                        <Button size="sm" onClick={submitItemDecision} disabled={submittingDecision} className="h-9 bg-blue-600 hover:bg-blue-700 text-white">
+                                          {submittingDecision ? 'Saving...' : 'Save Decision'}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   </div>
-                  
-                  {picklistData.transfer_status && picklistData.transfer_status !== 'Pending Transfer Decision' ? (
-                    <div className="bg-zinc-50 p-4 rounded-lg border border-zinc-200 text-center text-sm text-zinc-600">
-                      A decision has already been made for this picklist: <strong>{picklistData.transfer_status}</strong>
-                    </div>
-                  ) : isRejecting ? (
-                    <div className="space-y-3 bg-red-50 p-4 rounded-lg border border-red-100">
-                      <label className="block text-sm font-medium text-red-900">Reason for Rejection *</label>
-                      <textarea 
-                        value={rejectionReason}
-                        onChange={(e) => setRejectionReason(e.target.value)}
-                        className="w-full rounded-md border-red-200 shadow-sm focus:border-red-500 focus:ring-red-500 text-sm p-3"
-                        rows={3}
-                        placeholder="Please explain why the transfer is not possible..."
-                        required
-                      ></textarea>
-                      <div className="flex justify-end gap-2">
-                        <Button 
-                          variant="outline" 
-                          className="bg-white"
-                          onClick={() => { setIsRejecting(false); setRejectionReason(""); }}
-                        >
-                          Cancel
-                        </Button>
-                        <Button 
-                          variant="destructive"
-                          onClick={() => handleDecision('not_possible')}
-                          disabled={submittingDecision || !rejectionReason.trim()}
-                        >
-                          {submittingDecision ? 'Submitting...' : 'Submit Decision'}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex gap-3 pt-2">
-                      <Button 
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                        onClick={() => handleDecision('possible')}
-                        disabled={submittingDecision}
-                      >
-                        <CheckCircle size={16} className="mr-2" />
-                        Transfer Possible
-                      </Button>
-                      <Button 
-                        variant="destructive" 
-                        className="flex-1"
-                        onClick={() => setIsRejecting(true)}
-                        disabled={submittingDecision}
-                      >
-                        <XCircle size={16} className="mr-2" />
-                        Transfer Not Possible
-                      </Button>
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-zinc-500 text-sm">

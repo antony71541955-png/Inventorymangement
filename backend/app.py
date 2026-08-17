@@ -206,6 +206,18 @@ def init_db():
         c.execute("ALTER TABLE picklists ADD COLUMN transfer_status TEXT DEFAULT 'Pending Transfer Decision'")
     if "transfer_rejection_reason" not in picklist_columns:
         c.execute("ALTER TABLE picklists ADD COLUMN transfer_rejection_reason TEXT")
+        
+    # Ensure columns exist in picklist_items
+    c.execute("PRAGMA table_info(picklist_items)")
+    pi_columns = [row[1] for row in c.fetchall()]
+    if "transfer_status" not in pi_columns:
+        c.execute("ALTER TABLE picklist_items ADD COLUMN transfer_status TEXT DEFAULT 'Pending'")
+    if "transfer_rejection_reason" not in pi_columns:
+        c.execute("ALTER TABLE picklist_items ADD COLUMN transfer_rejection_reason TEXT")
+    if "actual_warehouse" not in pi_columns:
+        c.execute("ALTER TABLE picklist_items ADD COLUMN actual_warehouse TEXT")
+    if "actual_bin_location" not in pi_columns:
+        c.execute("ALTER TABLE picklist_items ADD COLUMN actual_bin_location TEXT")
 
     # Migrate stock_balances to support unique batches per location
     c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_balances'")
@@ -2165,6 +2177,7 @@ def get_picklist(id):
     # Get items
     c.execute('''
         SELECT pi.id as item_id, pi.part_number, pi.warehouse, pi.bin_location, pi.required_quantity,
+               pi.transfer_status, pi.transfer_rejection_reason, pi.actual_warehouse, pi.actual_bin_location,
                i.item_name
         FROM picklist_items pi
         JOIN items i ON pi.part_number = i.part_number
@@ -2335,6 +2348,46 @@ def picklist_decision(id):
     conn.commit()
     conn.close()
     return jsonify({"success": True, "status": status}), 200
+
+@app.route('/api/picklists/<int:picklist_id>/items/<int:item_id>/decision', methods=['POST'])
+@login_required
+def picklist_item_decision(picklist_id, item_id):
+    data = request.json
+    decision = data.get('decision')
+    reason = data.get('reason', None)
+    actual_warehouse = data.get('actual_warehouse', None)
+    actual_bin_location = data.get('actual_bin_location', None)
+    
+    if decision not in ['possible', 'not_possible']:
+        return jsonify({"error": "Invalid decision"}), 400
+        
+    if decision == 'not_possible' and not reason:
+        return jsonify({"error": "Reason is required when transfer is not possible"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    status = 'Possible' if decision == 'possible' else 'Not Possible'
+    
+    c.execute('''
+        UPDATE picklist_items 
+        SET transfer_status = ?, transfer_rejection_reason = ?, actual_warehouse = ?, actual_bin_location = ?
+        WHERE id = ? AND picklist_id = ?
+    ''', (status, reason, actual_warehouse, actual_bin_location, item_id, picklist_id))
+    
+    # Update the overall picklist status based on its items
+    c.execute("SELECT transfer_status FROM picklist_items WHERE picklist_id = ?", (picklist_id,))
+    item_statuses = [row['transfer_status'] for row in c.fetchall()]
+    
+    overall_status = 'Pending Transfer Decision'
+    if all(s != 'Pending' for s in item_statuses):
+        overall_status = 'Transfer Decisions Made'
+        
+    c.execute("UPDATE picklists SET transfer_status = ? WHERE id = ?", (overall_status, picklist_id))
+    
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "status": status, "overall_status": overall_status}), 200
 
 # --- SERVE FRONTEND (CATCH-ALL) ---
 @app.route('/', defaults={'path': ''})
