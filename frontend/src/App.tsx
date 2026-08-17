@@ -16,6 +16,7 @@ import {
   MoreHorizontal,
   MapPin,
   User,
+  Users as UsersIcon,
   History
 } from 'lucide-react';
 
@@ -31,6 +32,7 @@ import Login from './pages/Login';
 import Locations from './pages/Locations';
 import Users from './pages/Users';
 import AuditLogs from './pages/AuditLogs';
+import Customers from './pages/Customers';
 
 // Constants — uses VITE_API_URL env var in production (set in Render dashboard)
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -141,6 +143,7 @@ function Layout() {
     { path: '/deduction', name: 'Excel Deduction', icon: <FileSpreadsheet size={16} /> },
     { path: '/reports', name: 'Reports & Logs', icon: <BarChart3 size={16} /> },
     { path: '/locations', name: 'Locations Setup', icon: <MapPin size={16} /> },
+    { path: '/customers', name: 'Customers', icon: <UsersIcon size={16} /> },
   ];
 
   const menuItems = user?.role === 'superadmin' ? [
@@ -329,6 +332,7 @@ function Layout() {
             <Route path="/deduction" element={<ExcelDeduction />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/locations" element={<Locations />} />
+            <Route path="/customers" element={<Customers />} />
             {user?.role === 'superadmin' && (
               <>
                 <Route path="/users" element={<Users />} />

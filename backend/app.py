@@ -132,6 +132,18 @@ def init_db():
         )
     ''')
     
+    # 8. Customers Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_name TEXT UNIQUE NOT NULL,
+            cr_cash TEXT NOT NULL,
+            location TEXT NOT NULL,
+            salesman TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
     # Add indices for fast pagination over 25,000+ items
     c.execute("CREATE INDEX IF NOT EXISTS idx_items_part_number ON items(part_number)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_stock_balances_part_number ON stock_balances(part_number)")
@@ -1772,6 +1784,126 @@ def upload_excel_inventory():
             except Exception:
                 pass
         return jsonify({"error": f"Failed to process Excel file: {str(e)}"}), 500
+
+# --- CUSTOMERS API ROUTES ---
+
+@app.route('/api/customers', methods=['GET'])
+@login_required
+def get_customers():
+    try:
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT * FROM customers ORDER BY created_at DESC")
+        customers = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return jsonify(customers), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/customers', methods=['POST'])
+@login_required
+def create_customer():
+    try:
+        data = request.json
+        customer_name = data.get('customer_name', '').strip()
+        cr_cash = data.get('cr_cash', '').strip()
+        location = data.get('location', '').strip()
+        salesman = data.get('salesman', '').strip()
+
+        if not customer_name:
+            return jsonify({"error": "Customer Name is required"}), 400
+
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute('''
+            INSERT INTO customers (customer_name, cr_cash, location, salesman)
+            VALUES (?, ?, ?, ?)
+        ''', (customer_name, cr_cash, location, salesman))
+        conn.commit()
+        customer_id = c.lastrowid
+        conn.close()
+        return jsonify({"success": "Customer created successfully", "id": customer_id}), 201
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Customer already exists"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/customers/bulk', methods=['POST'])
+@login_required
+def upload_customers_bulk():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file part"}), 400
+            
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
+            
+        if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls') or file.filename.endswith('.csv')):
+            return jsonify({"error": "Only Excel (.xlsx, .xls) or CSV files are allowed"}), 400
+            
+        filename = f"{uuid.uuid4().hex}_{file.filename}"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(filepath)
+        
+        if file.filename.endswith('.csv'):
+            df = pd.read_csv(filepath)
+        else:
+            df = pd.read_excel(filepath)
+            
+        if df.empty:
+            return jsonify({"error": "Uploaded file is empty"}), 400
+            
+        os.remove(filepath)
+        
+        df.columns = df.columns.str.strip().str.upper()
+        
+        col_name = next((col for col in df.columns if 'NAME' in col or 'CUSTOMER' in col), None)
+        col_cr_cash = next((col for col in df.columns if 'CR/CASH' in col or 'CR' in col or 'CASH' in col), None)
+        col_location = next((col for col in df.columns if 'LOCATION' in col), None)
+        col_salesman = next((col for col in df.columns if 'SALESMAN' in col), None)
+        
+        if not col_name:
+            return jsonify({"error": "Could not find Customer Name column in file"}), 400
+            
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        success_count = 0
+        errors = []
+        
+        for index, row in df.iterrows():
+            customer_name = str(row[col_name]).strip() if pd.notna(row[col_name]) else ''
+            cr_cash = str(row[col_cr_cash]).strip() if col_cr_cash and pd.notna(row[col_cr_cash]) else 'CR'
+            location = str(row[col_location]).strip() if col_location and pd.notna(row[col_location]) else 'DUBAI'
+            salesman = str(row[col_salesman]).strip() if col_salesman and pd.notna(row[col_salesman]) else 'ISAMAIL'
+            
+            if not customer_name or customer_name.lower() == 'nan':
+                continue
+                
+            try:
+                c.execute('''
+                    INSERT INTO customers (customer_name, cr_cash, location, salesman)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(customer_name) DO UPDATE SET
+                        cr_cash=excluded.cr_cash,
+                        location=excluded.location,
+                        salesman=excluded.salesman
+                ''', (customer_name, cr_cash, location, salesman))
+                success_count += 1
+            except Exception as e:
+                errors.append(f"Row {index+2}: {str(e)}")
+                
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            "success": f"Successfully processed {success_count} customers",
+            "errors": errors
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
