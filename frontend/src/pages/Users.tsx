@@ -23,7 +23,23 @@ interface UserItem {
   full_name: string;
   role: string;
   warehouse_code?: string;
+  menu_access?: string[];
 }
+
+const AVAILABLE_MENUS = [
+  { path: '/', name: 'Dashboard' },
+  { path: '/inventory', name: 'Inventory' },
+  { path: '/transfer', name: 'Stock Transfer' },
+  { path: '/deduction', name: 'Excel Deduction' },
+  { path: '/reports', name: 'Reports & Logs' },
+  { path: '/locations', name: 'Locations Setup' },
+  { path: '/customers', name: 'Customers' },
+  { path: '/picklist', name: 'Picklist' },
+  { path: '/users', name: 'User Management' },
+  { path: '/audit-logs', name: 'Audit Logs' },
+  { path: '/notifications', name: 'Notifications' },
+  { path: '/bins', name: 'Bins' },
+];
 
 export default function Users() {
   const { user } = useAuth();
@@ -37,6 +53,7 @@ export default function Users() {
   const [role, setRole] = useState('operator');
   const [warehouseCode, setWarehouseCode] = useState('');
   const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [menuAccess, setMenuAccess] = useState<string[]>(AVAILABLE_MENUS.map(m => m.path));
   
   // Feedback alerts
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +110,8 @@ export default function Users() {
           password,
           full_name: fullName.trim(),
           role,
-          warehouse_code: role === 'warehouse_admin' ? warehouseCode : undefined
+          warehouse_code: role === 'warehouse_admin' ? warehouseCode : undefined,
+          menu_access: menuAccess
         }),
       });
 
@@ -109,6 +127,7 @@ export default function Users() {
       setPassword('');
       setRole('operator');
       setWarehouseCode('');
+      setMenuAccess(AVAILABLE_MENUS.map(m => m.path));
       // Reload directory
       fetchUsers();
     } catch (err: any) {
@@ -142,9 +161,11 @@ export default function Users() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900">User Management</h1>
-        <p className="text-zinc-500 text-sm mt-1.5 font-medium">Create and authorize operator and admin credentials for WMS access.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">User Management</h1>
+          <p className="text-zinc-500 text-sm mt-1.5 font-medium">Create and authorize operator and admin credentials for WMS access.</p>
+        </div>
       </div>
 
       {/* Dynamic Notifications */}
@@ -244,6 +265,30 @@ export default function Users() {
                     </Select>
                   </div>
                 )}
+
+                <div className="space-y-2 pt-2 border-t border-zinc-100">
+                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Custom Menu Access</label>
+                  <p className="text-[10px] text-zinc-500 mb-2">Select which modules this user can access in the sidebar.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {AVAILABLE_MENUS.map(menu => (
+                      <label key={menu.path} className="flex items-center space-x-2 text-xs text-zinc-700 cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                          checked={menuAccess.includes(menu.path)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setMenuAccess([...menuAccess, menu.path]);
+                            } else {
+                              setMenuAccess(menuAccess.filter(p => p !== menu.path));
+                            }
+                          }}
+                        />
+                        <span>{menu.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
 
                 <Button 
                   id="create-user-btn"

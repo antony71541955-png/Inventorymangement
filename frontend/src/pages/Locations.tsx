@@ -171,9 +171,11 @@ export default function Locations() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Title Header */}
-      <div>
-        <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900">Locations Setup</h1>
-        <p className="text-zinc-500 text-sm mt-1.5">Configure master warehouses, establish new storage bin coordinates, and map relationships.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Locations Setup</h1>
+          <p className="text-zinc-500 text-sm mt-1.5">Configure master warehouses, establish new storage bin coordinates, and map relationships.</p>
+        </div>
       </div>
 
       {/* Message Notifications */}

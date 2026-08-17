@@ -50,7 +50,7 @@ interface InventoryItem {
 }
 
 export default function Inventory() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   
   // Data loading states
   const [items, setItems] = useState<InventoryItem[]>([]);
@@ -158,6 +158,7 @@ export default function Inventory() {
   };
 
   const [uploadingExcel, setUploadingExcel] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -167,26 +168,55 @@ export default function Inventory() {
     e.target.value = '';
     
     setUploadingExcel(true);
+    setUploadProgress(0);
     const formData = new FormData();
     formData.append('file', file);
     
     try {
-      const res = await fetch(`${API_URL}/api/inventory/upload`, {
-        method: 'POST',
-        body: formData
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_URL}/api/inventory/upload`, true);
+        
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        }
+        
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round((event.loaded / event.total) * 100);
+            setUploadProgress(percentComplete);
+          }
+        };
+        
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              resolve(data);
+            } catch (err) {
+              resolve(xhr.responseText);
+            }
+          } else {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              reject(new Error(data.error || 'Failed to upload spreadsheet.'));
+            } catch {
+              reject(new Error('Failed to upload spreadsheet.'));
+            }
+          }
+        };
+        
+        xhr.onerror = () => reject(new Error('Network error occurred during excel import.'));
+        xhr.send(formData);
       });
       
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to upload spreadsheet.');
-      }
-      
-      alert(data.success || 'Bulk upload completed successfully!');
+      alert('Bulk upload completed successfully!');
       fetchInventory();
     } catch (err: any) {
       alert(err.message || 'Error occurred during excel import.');
     } finally {
       setUploadingExcel(false);
+      setTimeout(() => setUploadProgress(0), 1000);
     }
   };
 
@@ -443,7 +473,7 @@ export default function Inventory() {
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Title Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900">Inventory</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Inventory</h1>
         <div className="flex items-center gap-2">
           <input
             type="file"
@@ -454,11 +484,20 @@ export default function Inventory() {
           />
           <Button 
             variant="outline" 
-            className="border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-semibold text-xs h-9 rounded-md shadow-sm"
+            className="relative overflow-hidden border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-semibold text-xs h-9 rounded-md shadow-sm"
             onClick={() => document.getElementById('bulk-excel-upload')?.click()}
             disabled={uploadingExcel}
           >
-            <Upload className="mr-1.5 h-4 w-4 text-zinc-500" /> {uploadingExcel ? 'Uploading...' : 'Bulk Excel Upload'}
+            {uploadingExcel && (
+              <div 
+                className="absolute left-0 top-0 bottom-0 bg-indigo-100 transition-all duration-200" 
+                style={{ width: `${uploadProgress}%`, zIndex: 0 }}
+              />
+            )}
+            <div className="relative z-10 flex items-center">
+              <Upload className="mr-1.5 h-4 w-4 text-zinc-500" /> 
+              {uploadingExcel ? `Uploading... ${uploadProgress}%` : 'Bulk Excel Upload'}
+            </div>
           </Button>
           <Button className="bg-zinc-950 hover:bg-zinc-900 text-white font-semibold text-xs h-9 rounded-md shadow-sm" onClick={handleAddClick}>
             <Plus className="mr-1.5 h-4 w-4" /> Add Stock Item

@@ -23,7 +23,7 @@ import {
 
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-
+import logo from './assets/logo.png';
 import Dashboard from './pages/Dashboard';
 import Inventory from './pages/Inventory';
 import StockTransfer from './pages/StockTransfer';
@@ -64,6 +64,7 @@ interface AuthUser {
   full_name: string;
   role: string;
   warehouse_code?: string;
+  menu_access?: string | string[] | null;
 }
 
 interface AuthContextType {
@@ -169,16 +170,24 @@ function Layout() {
     { path: '/picklist', name: 'Picklist', icon: <ClipboardList size={16} /> },
   ];
 
-  const menuItems = user?.role === 'superadmin' ? [
-    ...baseMenuItems,
-    { path: '/users', name: 'User Management', icon: <User size={16} /> },
-    { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> }
-  ] : user?.role === 'warehouse_admin' ? [
-    { path: '/', name: 'Dashboard', icon: <LayoutDashboard size={16} /> },
-    { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },
-    { path: '/bins', name: 'Bins', icon: <Boxes size={16} /> },
-    { path: '/transfer', name: 'Stock Transfer', icon: <RefreshCw size={16} /> },
-  ] : baseMenuItems;
+  const menuItems = user?.menu_access && Array.isArray(user.menu_access) && user.menu_access.length > 0 
+    ? [
+        ...baseMenuItems,
+        { path: '/users', name: 'User Management', icon: <User size={16} /> },
+        { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> },
+        { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },
+        { path: '/bins', name: 'Bins', icon: <Boxes size={16} /> },
+      ].filter(item => user.menu_access?.includes(item.path))
+    : user?.role === 'superadmin' ? [
+        ...baseMenuItems,
+        { path: '/users', name: 'User Management', icon: <User size={16} /> },
+        { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> }
+      ] : user?.role === 'warehouse_admin' ? [
+        { path: '/', name: 'Dashboard', icon: <LayoutDashboard size={16} /> },
+        { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },
+        { path: '/bins', name: 'Bins', icon: <Boxes size={16} /> },
+        { path: '/transfer', name: 'Stock Transfer', icon: <RefreshCw size={16} /> },
+      ] : baseMenuItems;
 
   const sidebarFooterItems: any[] = [
     // { name: 'Notifications', icon: <Bell size={16} />, badge: '?' },
@@ -224,8 +233,7 @@ function Layout() {
         <div>
           <div className="flex items-center justify-between text-zinc-100 font-bold text-sm tracking-wide mb-6">
             <div className="flex items-center gap-2">
-              <Layers className="text-zinc-100" size={18} />
-              <span>Inventory Management</span>
+              <img src={logo} alt="Greens International Logo" className="h-10 object-contain" />
             </div>
             <button className="text-zinc-500 hover:text-zinc-300">
               <span className="text-xs">⇥</span>
@@ -302,8 +310,7 @@ function Layout() {
               <div>
                 <SheetHeader className="text-left border-b border-zinc-850 pb-4 mb-4">
                   <SheetTitle className="flex items-center gap-2.5 text-sm font-bold text-zinc-100">
-                    <Layers className="text-indigo-500" size={20} />
-                    <span>Inventory Management</span>
+                    <img src={logo} alt="Greens International Logo" className="h-10 object-contain" />
                   </SheetTitle>
                 </SheetHeader>
                 

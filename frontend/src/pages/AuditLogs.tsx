@@ -100,7 +100,7 @@ export default function AuditLogs() {
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900">Database Audit Logs</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Database Audit Logs</h1>
           <p className="text-zinc-500 text-sm mt-1.5 font-medium">Trace all creations, modifications, transfers, and removals made by users.</p>
         </div>
         <Button 

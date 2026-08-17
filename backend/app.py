@@ -45,7 +45,8 @@ def init_db():
             password_hash TEXT NOT NULL,
             full_name TEXT NOT NULL,
             role TEXT DEFAULT 'operator',
-            warehouse_code TEXT
+            warehouse_code TEXT,
+            menu_access TEXT
         )
     ''')
     
@@ -219,6 +220,12 @@ def init_db():
     if "actual_bin_location" not in pi_columns:
         c.execute("ALTER TABLE picklist_items ADD COLUMN actual_bin_location TEXT")
 
+    # Ensure columns exist in users
+    c.execute("PRAGMA table_info(users)")
+    users_columns = [row[1] for row in c.fetchall()]
+    if "menu_access" not in users_columns:
+        c.execute("ALTER TABLE users ADD COLUMN menu_access TEXT")
+
     # Migrate stock_balances to support unique batches per location
     c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_balances'")
     sb_table_row = c.fetchone()
@@ -325,7 +332,7 @@ def get_current_user():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('''
-        SELECT users.id, users.username, users.full_name, users.role, users.warehouse_code 
+        SELECT users.id, users.username, users.full_name, users.role, users.warehouse_code, users.menu_access 
         FROM sessions 
         JOIN users ON sessions.user_id = users.id 
         WHERE sessions.token = ?
@@ -334,12 +341,14 @@ def get_current_user():
     conn.close()
     
     if user:
+        import json
         return {
             "id": user["id"],
             "username": user["username"],
             "full_name": user["full_name"],
             "role": user["role"],
-            "warehouse_code": user["warehouse_code"]
+            "warehouse_code": user["warehouse_code"],
+            "menu_access": json.loads(user["menu_access"]) if user["menu_access"] else None
         }
     return None
 
@@ -391,14 +400,17 @@ def register():
     role = data.get("role", "operator").strip()
     warehouse_code = data.get("warehouse_code", "").strip() if role == "warehouse_admin" else None
     
+    import json
+    menu_access = json.dumps(data.get("menu_access")) if data.get("menu_access") else None
+    
     hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     conn = get_db_connection()
     c = conn.cursor()
     try:
         c.execute("BEGIN TRANSACTION")
-        c.execute("INSERT INTO users (username, password_hash, full_name, role, warehouse_code) VALUES (?, ?, ?, ?, ?)",
-                  (username, hashed, full_name, role, warehouse_code))
+        c.execute("INSERT INTO users (username, password_hash, full_name, role, warehouse_code, menu_access) VALUES (?, ?, ?, ?, ?, ?)",
+                  (username, hashed, full_name, role, warehouse_code, menu_access))
         
         # Log user creation in audit log (stock_journal)
         voucher = generate_voucher_number("USR-ADD")
@@ -443,13 +455,15 @@ def login():
     conn.commit()
     conn.close()
     
+    import json
     return jsonify({
         "token": token,
         "user": {
             "username": user["username"],
             "full_name": user["full_name"],
             "role": user["role"],
-            "warehouse_code": user["warehouse_code"]
+            "warehouse_code": user["warehouse_code"],
+            "menu_access": json.loads(user["menu_access"]) if user["menu_access"] else None
         }
     }), 200
 
@@ -480,11 +494,17 @@ def get_users():
     
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT id, username, full_name, role, warehouse_code FROM users ORDER BY username")
+    c.execute("SELECT id, username, full_name, role, warehouse_code, menu_access FROM users ORDER BY username")
     rows = c.fetchall()
     conn.close()
     
-    users = [dict(r) for r in rows]
+    import json
+    users = []
+    for r in rows:
+        u = dict(r)
+        if u["menu_access"]:
+            u["menu_access"] = json.loads(u["menu_access"])
+        users.append(u)
     return jsonify(users), 200
 
 @app.route('/api/users/<int:user_id>', methods=['DELETE'])
@@ -525,6 +545,31 @@ def delete_user(user_id):
         
     conn.close()
     return jsonify({"success": "User deleted successfully"}), 200
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@login_required
+def update_user(user_id):
+    if request.user["role"] != "superadmin":
+        return jsonify({"error": "Unauthorized. Only superadmin can edit users."}), 403
+    
+    data = request.json
+    import json
+    menu_access = json.dumps(data.get("menu_access")) if data.get("menu_access") else None
+    role = data.get("role")
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # We only update menu_access for now (can expand later)
+        c.execute("UPDATE users SET menu_access = ? WHERE id = ?", (menu_access, user_id))
+        conn.commit()
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": f"Failed to update user: {str(e)}"}), 500
+        
+    conn.close()
+    return jsonify({"success": "User updated successfully"}), 200
 
 # --- INVENTORY CRUD ROUTES ---
 @app.route('/api/inventory', methods=['GET'])
@@ -2279,7 +2324,26 @@ def delete_picklist(id):
     c.execute("DELETE FROM picklists WHERE id = ?", (id,))
     conn.commit()
     conn.close()
-    return jsonify({"success": "Picklist deleted successfully"}), 200
+    return jsonify({"message": "Picklist deleted successfully"}), 200
+
+@app.route('/api/picklists/<int:id>/status', methods=['PUT'])
+@login_required
+def update_picklist_status(id):
+    if request.user['role'] != 'superadmin':
+        return jsonify({"error": "Only superadmin can update picklist overall status"}), 403
+        
+    data = request.json
+    status = data.get('status')
+    if not status:
+        return jsonify({"error": "Status is required"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("UPDATE picklists SET status = ? WHERE id = ?", (status, id))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"message": "Picklist status updated successfully", "status": status}), 200
 
 # ==========================================
 # Notifications and Decision Flow

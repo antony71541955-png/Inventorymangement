@@ -47,6 +47,7 @@ export default function Picklist() {
   const [editingPicklistId, setEditingPicklistId] = useState<number | null>(null);
   const [editingPicklistTransferStatus, setEditingPicklistTransferStatus] = useState<string | null>(null);
   const [editingPicklistRejectionReason, setEditingPicklistRejectionReason] = useState<string | null>(null);
+  const [editingPicklistOverallStatus, setEditingPicklistOverallStatus] = useState<string | null>(null);
 
   // Customers State
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -207,6 +208,7 @@ export default function Picklist() {
     setEditingPicklistId(null);
     setEditingPicklistTransferStatus(null);
     setEditingPicklistRejectionReason(null);
+    setEditingPicklistOverallStatus(null);
     setItemStatuses({});
   };
 
@@ -216,6 +218,7 @@ export default function Picklist() {
     setEditingPicklistId(picklist.id);
     setEditingPicklistTransferStatus(picklist.transfer_status || null);
     setEditingPicklistRejectionReason(picklist.transfer_rejection_reason || null);
+    setEditingPicklistOverallStatus(picklist.status || null);
     
     // Set Customer
     const cust = customers.find(c => c.id === picklist.customer_id);
@@ -362,11 +365,41 @@ export default function Picklist() {
     }
   };
 
+  const handleUpdateOverallStatus = async (status: 'Approved' | 'Rejected') => {
+    if (!editingPicklistId) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    
+    try {
+      const res = await fetch(`${API_URL}/api/picklists/${editingPicklistId}/status`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ status })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update status");
+      }
+      
+      setSubmitSuccess(`Picklist ${status.toLowerCase()} successfully!`);
+      setEditingPicklistOverallStatus(status);
+    } catch (err: any) {
+      setSubmitError(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Picklists</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Picklists</h1>
           <p className="text-sm text-zinc-500 mt-1">Manage and create picklists for customers.</p>
         </div>
       </div>
@@ -731,13 +764,40 @@ export default function Picklist() {
                 </div>
               )}
               
-              <button 
-                onClick={handleSubmit}
-                disabled={isSubmitting || !selectedCustomer || selectedInventories.length === 0}
-                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium shadow-sm transition-colors flex items-center gap-2"
-              >
-                {isSubmitting ? 'Saving...' : (editingPicklistId ? 'Save Changes' : 'Submit Picklist')}
-              </button>
+              {editingPicklistId && editingPicklistTransferStatus === 'Transfer Decisions Made' && editingPicklistOverallStatus === 'Pending' && (
+                <div className="flex items-center gap-2 mr-4 border-r border-zinc-200 pr-4">
+                  <button 
+                    onClick={() => handleUpdateOverallStatus('Approved')}
+                    disabled={isSubmitting}
+                    className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors"
+                  >
+                    Approve Picklist
+                  </button>
+                  <button 
+                    onClick={() => handleUpdateOverallStatus('Rejected')}
+                    disabled={isSubmitting}
+                    className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors"
+                  >
+                    Reject Picklist
+                  </button>
+                </div>
+              )}
+              
+              {editingPicklistOverallStatus && editingPicklistOverallStatus !== 'Pending' && (
+                <div className="mr-4 text-sm font-medium border-r border-zinc-200 pr-4">
+                  Current Status: <span className={editingPicklistOverallStatus === 'Approved' ? 'text-emerald-600' : 'text-red-600'}>{editingPicklistOverallStatus}</span>
+                </div>
+              )}
+              
+              {(!editingPicklistOverallStatus || editingPicklistOverallStatus === 'Pending') && (
+                <button 
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || !selectedCustomer || selectedInventories.length === 0}
+                  className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium shadow-sm transition-colors flex items-center gap-2"
+                >
+                  {isSubmitting ? 'Saving...' : (editingPicklistId ? 'Save Changes' : 'Submit Picklist')}
+                </button>
+              )}
             </div>
           </div>
         </div>

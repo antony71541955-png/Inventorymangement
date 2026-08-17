@@ -231,9 +231,9 @@ export default function Notifications() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900 tracking-tight">Notifications</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Notifications</h1>
           <p className="text-sm text-zinc-500 mt-1">Manage your pending alerts and requests</p>
         </div>
       </div>
