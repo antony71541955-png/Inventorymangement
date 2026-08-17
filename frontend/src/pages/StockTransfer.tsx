@@ -7,7 +7,9 @@ import {
   Calendar, 
   User, 
   FileText,
-  AlertCircle
+  AlertCircle,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,10 +52,15 @@ export default function StockTransfer() {
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   
   // Destination form states
-  const [toWarehouse, setToWarehouse] = useState('');
-  const [toBin, setToBin] = useState('');
-  const [qtyToTransfer, setQtyToTransfer] = useState('1');
-  const [remarks, setRemarks] = useState('Location stock transfer');
+  interface Destination {
+    toWarehouse: string;
+    toBin: string;
+    qtyToTransfer: string;
+    remarks: string;
+  }
+  const [destinations, setDestinations] = useState<Destination[]>([
+    { toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }
+  ]);
   
   // Status states
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +131,26 @@ export default function StockTransfer() {
     fetchLocations();
   }, []);
 
+  const updateDestination = (index: number, field: keyof Destination, value: string) => {
+    const newDestinations = [...destinations];
+    newDestinations[index][field] = value;
+    if (field === 'toWarehouse') {
+        newDestinations[index].toBin = '';
+    }
+    setDestinations(newDestinations);
+  };
+
+  const addDestination = () => {
+    setDestinations([...destinations, { toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }]);
+  };
+
+  const removeDestination = (index: number) => {
+    if (destinations.length > 1) {
+      const newDestinations = destinations.filter((_, i) => i !== index);
+      setDestinations(newDestinations);
+    }
+  };
+
   const handlePostTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -137,60 +164,67 @@ export default function StockTransfer() {
     }
 
     const selectedItem = itemsPool[selectedIndex];
-    const qty = parseInt(qtyToTransfer);
-
-    if (qty <= 0) {
-      setError('Transfer quantity must be greater than 0.');
-      setPosting(false);
-      return;
+    
+    // Validation
+    let totalQty = 0;
+    for (let i = 0; i < destinations.length; i++) {
+      const dest = destinations[i];
+      const qty = parseInt(dest.qtyToTransfer) || 0;
+      
+      if (qty <= 0) {
+        setError(`Transfer quantity must be greater than 0 for destination ${i + 1}.`);
+        setPosting(false);
+        return;
+      }
+      if (!dest.toWarehouse.trim() || !dest.toBin.trim()) {
+        setError(`Destination warehouse and bin are mandatory for destination ${i + 1}.`);
+        setPosting(false);
+        return;
+      }
+      if (selectedItem.warehouse === dest.toWarehouse.trim() && selectedItem.bin_location === dest.toBin.trim()) {
+        setError(`Destination location cannot be identical to the source location for destination ${i + 1}.`);
+        setPosting(false);
+        return;
+      }
+      totalQty += qty;
     }
 
-    if (qty > selectedItem.quantity) {
-      setError(`Insufficient stock. Maximum available is ${selectedItem.quantity} pcs.`);
-      setPosting(false);
-      return;
-    }
-
-    if (!toWarehouse.trim() || !toBin.trim()) {
-      setError('Destination warehouse and bin locations are mandatory.');
-      setPosting(false);
-      return;
-    }
-
-    if (selectedItem.warehouse === toWarehouse.trim() && selectedItem.bin_location === toBin.trim()) {
-      setError('Destination location cannot be identical to the source location.');
+    if (totalQty > selectedItem.quantity) {
+      setError(`Insufficient stock. Total transfer quantity (${totalQty}) exceeds available (${selectedItem.quantity} pcs).`);
       setPosting(false);
       return;
     }
 
     try {
-      const res = await fetch(`${API_URL}/api/transfers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          part_number: selectedItem.part_number,
-          from_warehouse: selectedItem.warehouse,
-          from_bin: selectedItem.bin_location,
-          to_warehouse: toWarehouse.trim(),
-          to_bin: toBin.trim(),
-          quantity: qty,
-          remarks: remarks.trim()
-        })
-      });
+      const vouchers = [];
+      for (const dest of destinations) {
+        const qty = parseInt(dest.qtyToTransfer);
+        const res = await fetch(`${API_URL}/api/transfers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            part_number: selectedItem.part_number,
+            from_warehouse: selectedItem.warehouse,
+            from_bin: selectedItem.bin_location,
+            to_warehouse: dest.toWarehouse.trim(),
+            to_bin: dest.toBin.trim(),
+            quantity: qty,
+            remarks: dest.remarks.trim()
+          })
+        });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Transfer posting failed');
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Transfer posting failed for a destination');
+        }
+        vouchers.push(data.voucher);
       }
 
-      setSuccess(`Journal Voucher posted successfully: ${data.voucher}`);
+      setSuccess(`Journal Voucher(s) posted successfully: ${vouchers.join(', ')}`);
       
       // Reset form fields
       setSelectedIndex(-1);
-      setToWarehouse('');
-      setToBin('');
-      setQtyToTransfer('1');
-      setRemarks('Location stock transfer');
+      setDestinations([{ toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }]);
 
       // Refresh data
       fetchPool();
@@ -267,62 +301,85 @@ export default function StockTransfer() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Destination Warehouse*</label>
-                  <select
-                    className="w-full p-2.5 h-10 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                    value={toWarehouse}
-                    onChange={(e) => {
-                      setToWarehouse(e.target.value);
-                      setToBin(''); // Reset bin when warehouse changes
-                    }}
-                    required
-                  >
-                    <option value="">-- Select Warehouse --</option>
-                    {Object.keys(locations).map((wh) => (
-                      <option key={wh} value={wh}>{wh}</option>
-                    ))}
-                  </select>
+              <div className="space-y-4 border-t border-zinc-100 pt-4 mt-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Destination Locations</label>
+                  <Button type="button" variant="outline" size="sm" onClick={addDestination} className="h-7 text-xs bg-white text-zinc-700 hover:text-zinc-900 border-zinc-200">
+                    <Plus size={14} className="mr-1" /> Add Location
+                  </Button>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Destination Bin*</label>
-                  <select
-                    className="w-full p-2.5 h-10 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
-                    value={toBin}
-                    onChange={(e) => setToBin(e.target.value)}
-                    required
-                    disabled={!toWarehouse}
-                  >
-                    <option value="">-- Select Bin --</option>
-                    {(locations[toWarehouse] || []).map((bin) => (
-                      <option key={bin} value={bin}>{bin}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-1.5 col-span-1">
-                  <label className="text-[10px] font-bold text-zinc-455 uppercase tracking-wider">Quantity to Transfer*</label>
-                  <Input
-                    type="number"
-                    className="bg-white border-zinc-200 text-zinc-800 focus-visible:ring-zinc-900 text-xs h-10"
-                    min={1}
-                    max={selectedItem ? selectedItem.quantity : undefined}
-                    value={qtyToTransfer}
-                    onChange={(e) => setQtyToTransfer(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-1.5 col-span-2">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Remarks</label>
-                  <Input
-                    type="text"
-                    className="bg-white border-zinc-200 text-zinc-800 focus-visible:ring-zinc-900 text-xs h-10"
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                  />
+                <div className="space-y-3">
+                  {destinations.map((dest, index) => (
+                    <div key={index} className="p-3.5 bg-zinc-50 border border-zinc-200/60 rounded-lg relative space-y-3.5 group">
+                      {destinations.length > 1 && (
+                        <button 
+                          type="button" 
+                          onClick={() => removeDestination(index)}
+                          className="absolute -right-2 -top-2 bg-white hover:bg-red-50 text-red-500 rounded-full p-1 border border-zinc-200 hover:border-red-200 shadow-sm transition-colors z-10 opacity-0 group-hover:opacity-100"
+                          title="Remove location"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Warehouse*</label>
+                          <select
+                            className="w-full p-2 h-9 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                            value={dest.toWarehouse}
+                            onChange={(e) => updateDestination(index, 'toWarehouse', e.target.value)}
+                            required
+                          >
+                            <option value="">-- Select --</option>
+                            {Object.keys(locations).map((wh) => (
+                              <option key={wh} value={wh}>{wh}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Bin*</label>
+                          <select
+                            className="w-full p-2 h-9 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                            value={dest.toBin}
+                            onChange={(e) => updateDestination(index, 'toBin', e.target.value)}
+                            required
+                            disabled={!dest.toWarehouse}
+                          >
+                            <option value="">-- Select --</option>
+                            {(locations[dest.toWarehouse] || []).map((bin) => (
+                              <option key={bin} value={bin}>{bin}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1 col-span-1">
+                          <label className="text-[9px] font-bold text-zinc-455 uppercase tracking-wider">Qty*</label>
+                          <Input
+                            type="number"
+                            className="bg-white border-zinc-200 text-zinc-800 focus-visible:ring-zinc-900 text-xs h-9"
+                            min={1}
+                            max={selectedItem ? selectedItem.quantity : undefined}
+                            value={dest.qtyToTransfer}
+                            onChange={(e) => updateDestination(index, 'qtyToTransfer', e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="space-y-1 col-span-2">
+                          <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Remarks</label>
+                          <Input
+                            type="text"
+                            className="bg-white border-zinc-200 text-zinc-800 focus-visible:ring-zinc-900 text-xs h-9"
+                            value={dest.remarks}
+                            onChange={(e) => updateDestination(index, 'remarks', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -350,12 +407,23 @@ export default function StockTransfer() {
                   <div className="bg-zinc-50 border border-zinc-200/80 p-4 rounded-xl w-28">
                     <MapPin size={22} className="text-zinc-500 mx-auto mb-2" />
                     <div className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">To</div>
-                    <strong className="block text-xs truncate mt-1 text-zinc-800">{toWarehouse || '?'}</strong>
-                    <span className="text-[10px] text-zinc-500">Bin: {toBin || '?'}</span>
+                    {destinations.length === 1 ? (
+                      <>
+                        <strong className="block text-xs truncate mt-1 text-zinc-800">{destinations[0].toWarehouse || '?'}</strong>
+                        <span className="text-[10px] text-zinc-500">Bin: {destinations[0].toBin || '?'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <strong className="block text-xs truncate mt-1 text-zinc-800">{destinations.length} Locations</strong>
+                        <span className="text-[10px] text-zinc-500">Multiple Bins</span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-zinc-900">Transferring {qtyToTransfer} pcs</h3>
+                  <h3 className="text-sm font-bold text-zinc-900">
+                    Transferring {destinations.reduce((sum, dest) => sum + (parseInt(dest.qtyToTransfer) || 0), 0)} pcs
+                  </h3>
                   <p className="text-xs text-zinc-555 mt-1">Item: <strong>{selectedItem.part_number}</strong> ({selectedItem.item_name})</p>
                 </div>
               </div>
