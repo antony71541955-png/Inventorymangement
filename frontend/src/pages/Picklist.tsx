@@ -378,8 +378,8 @@ export default function Picklist() {
 
       {activeTab === 'MANAGE' && (
         <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
-          <div className="p-0">
-            <table className="w-full text-sm text-left">
+          <div className="p-0 overflow-x-auto">
+            <table className="w-full min-w-[800px] text-sm text-left">
               <thead className="text-xs text-zinc-500 bg-zinc-50 uppercase border-b border-zinc-100">
                 <tr>
                   <th className="px-6 py-4">ID</th>
@@ -611,8 +611,8 @@ export default function Picklist() {
                       </button>
                     </div>
                     
-                    <div className="p-0">
-                      <table className="w-full text-sm text-left">
+                    <div className="p-0 overflow-x-auto">
+                      <table className="w-full min-w-[600px] text-sm text-left">
                         <thead className="text-xs text-zinc-500 bg-zinc-50 uppercase border-b border-zinc-100">
                           <tr>
                             <th className="px-4 py-3">Warehouse</th>

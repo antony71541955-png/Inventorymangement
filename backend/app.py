@@ -8,9 +8,7 @@ from PIL import Image
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import bcrypt
-
-app = Flask(__name__)
-
+app = Flask(__name__, static_folder='../frontend/dist', static_url_path='/')
 # --- CORS: allow localhost in dev and the deployed frontend in production ---
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
 CORS(app, origins=[FRONTEND_URL, "http://localhost:5173", "http://localhost:4173"])
@@ -2337,6 +2335,22 @@ def picklist_decision(id):
     conn.commit()
     conn.close()
     return jsonify({"success": True, "status": status}), 200
+
+# --- SERVE FRONTEND (CATCH-ALL) ---
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    # Do not intercept API requests
+    if path.startswith('api/'):
+        return jsonify({"error": "Not found"}), 404
+        
+    if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    else:
+        # Fallback to index.html for SPA routing
+        if os.path.exists(os.path.join(app.static_folder, 'index.html')):
+            return send_from_directory(app.static_folder, 'index.html')
+        return "Frontend build not found.", 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

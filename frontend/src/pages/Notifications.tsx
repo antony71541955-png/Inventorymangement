@@ -263,8 +263,8 @@ export default function Notifications() {
                       <Package size={16} className="text-zinc-500" />
                       Requested Items
                     </h3>
-                    <div className="border border-zinc-200 rounded-lg overflow-hidden">
-                      <table className="w-full text-sm text-left">
+                    <div className="border border-zinc-200 rounded-lg overflow-x-auto">
+                      <table className="w-full min-w-[600px] text-sm text-left">
                         <thead className="text-xs text-zinc-500 bg-zinc-50 border-b border-zinc-200">
                           <tr>
                             <th className="px-4 py-2 font-medium">Part Number</th>

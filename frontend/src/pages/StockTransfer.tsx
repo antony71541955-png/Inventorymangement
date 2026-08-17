@@ -269,6 +269,75 @@ export default function StockTransfer() {
     }
   };
 
+  // Barcode Scanner Integration
+  useEffect(() => {
+    let barcodeBuffer = '';
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      const currentTime = Date.now();
+      if (currentTime - lastKeyTime > 100) {
+        barcodeBuffer = '';
+      }
+      lastKeyTime = currentTime;
+
+      if (e.key === 'Enter') {
+        if (barcodeBuffer.length > 0) {
+          const scannedPartNumber = barcodeBuffer.trim();
+          
+          let foundAny = false;
+          let addedCount = 0;
+          let newWarehouse = '';
+          
+          setSelectedSourceItems(prev => {
+            const newSelected = [...prev];
+            itemsPool.forEach((item, index) => {
+              if (item.part_number.toLowerCase() === scannedPartNumber.toLowerCase()) {
+                foundAny = true;
+                if (!newSelected.includes(index)) {
+                  newSelected.push(index);
+                  addedCount++;
+                  if (!newWarehouse) newWarehouse = item.warehouse;
+                }
+              }
+            });
+            
+            setTimeout(() => {
+              if (addedCount > 0) {
+                if (newWarehouse) {
+                  // Only auto-set if it's empty. Since we can't reliably read sourceWarehouse here without making it a dependency, 
+                  // we will just unconditionally set it using functional state update if it was empty.
+                  setSourceWarehouse(prevWh => prevWh ? prevWh : newWarehouse);
+                }
+                setSuccess(`Barcode scanned: ${scannedPartNumber} selected.`);
+                setTimeout(() => setSuccess(null), 3000);
+              } else if (!foundAny) {
+                setError(`Barcode scanned: ${scannedPartNumber} not found in inventory.`);
+                setTimeout(() => setError(null), 3000);
+              }
+            }, 0);
+
+            return newSelected;
+          });
+
+          barcodeBuffer = '';
+        }
+      } else if (e.key.length === 1) {
+        barcodeBuffer += e.key;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [itemsPool]);
+
   useEffect(() => {
     fetchPool();
     fetchHistory();
@@ -321,6 +390,9 @@ export default function StockTransfer() {
   }, [itemsPool, location.state]);
 
   const warehouseItems = useMemo(() => {
+    if (!sourceWarehouse) {
+      return itemsPool.map((item, index) => ({ item, index }));
+    }
     return itemsPool.map((item, index) => ({ item, index })).filter(({ item }) => item.warehouse === sourceWarehouse);
   }, [itemsPool, sourceWarehouse]);
 
@@ -332,6 +404,9 @@ export default function StockTransfer() {
   };
 
   const toggleSourceItem = (index: number) => {
+    const item = itemsPool[index];
+    setSourceWarehouse(prev => prev ? prev : item.warehouse);
+    
     setSelectedSourceItems(prev => {
       if (prev.includes(index)) {
         return prev.filter(i => i !== index);
@@ -350,6 +425,20 @@ export default function StockTransfer() {
     newDestinations[index] = { ...newDestinations[index], [field]: value };
     if (field === 'toWarehouse') {
         newDestinations[index].toBin = '';
+    }
+    if (field === 'sourceItemIndex' && value !== '') {
+        const selectedItem = itemsPool[value as number];
+        if (selectedItem) {
+            newDestinations[index].toWarehouse = selectedItem.warehouse;
+            
+            // Auto-add to selected source items if not already there so validation passes
+            setSelectedSourceItems(prev => {
+              if (!prev.includes(value as number)) {
+                return [...prev, value as number];
+              }
+              return prev;
+            });
+        }
     }
     setDestinations(newDestinations);
   };
@@ -487,7 +576,7 @@ export default function StockTransfer() {
   const selectedItemsOptions = selectedSourceItems.map(idx => {
     const item = itemsPool[idx];
     return {
-      label: `${item.part_number} - ${item.item_name} (Bal: ${item.quantity})`,
+      label: `${item.part_number} - ${item.item_name} (Bal: ${item.quantity}) - Bin: ${item.bin_location}`,
       value: idx
     };
   });
@@ -541,7 +630,7 @@ export default function StockTransfer() {
                     selectedValues={selectedSourceItems}
                     onChange={toggleSourceItem}
                     placeholder="-- Select Items --"
-                    disabled={!sourceWarehouse || loadingItems}
+                    disabled={loadingItems}
                     className="h-[38px]"
                   />
                 </div>

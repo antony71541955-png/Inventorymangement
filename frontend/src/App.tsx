@@ -44,6 +44,20 @@ import Notifications from './pages/Notifications';
 // Constants — uses VITE_API_URL env var in production (set in Render dashboard)
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+// Global Fetch Interceptor to include JWT token
+const originalFetch = window.fetch;
+window.fetch = async (input, init) => {
+  const storedToken = localStorage.getItem('token');
+  if (storedToken) {
+    init = init || {};
+    init.headers = {
+      ...init.headers,
+      'Authorization': `Bearer ${storedToken}`,
+    };
+  }
+  return originalFetch(input, init);
+};
+
 // Auth Context
 interface AuthUser {
   username: string;
@@ -94,24 +108,7 @@ export default function App() {
     setUser(null);
   };
 
-  // Setup Global Fetch Interceptor to include JWT token
-  useEffect(() => {
-    const originalFetch = window.fetch;
-    window.fetch = async (input, init) => {
-      const storedToken = localStorage.getItem('token');
-      if (storedToken) {
-        init = init || {};
-        init.headers = {
-          ...init.headers,
-          'Authorization': `Bearer ${storedToken}`,
-        };
-      }
-      return originalFetch(input, init);
-    };
-    return () => {
-      window.fetch = originalFetch;
-    };
-  }, [token]);
+
 
   return (
     <AuthContext.Provider value={{ token, user, login, logout }}>
