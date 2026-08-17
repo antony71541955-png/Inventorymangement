@@ -168,6 +168,20 @@ def init_db():
             FOREIGN KEY(part_number) REFERENCES items(part_number) ON DELETE CASCADE
         )
     ''')
+    # 11. Notifications Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_role TEXT,
+            target_user_id INTEGER,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            related_entity_type TEXT,
+            related_entity_id INTEGER,
+            is_read BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
     
     # Add indices for fast pagination over 25,000+ items
     c.execute("CREATE INDEX IF NOT EXISTS idx_items_part_number ON items(part_number)")
@@ -186,6 +200,14 @@ def init_db():
         c.execute("ALTER TABLE items ADD COLUMN expiry TEXT DEFAULT ''")
     if "selling_price" not in columns:
         c.execute("ALTER TABLE items ADD COLUMN selling_price REAL DEFAULT 0.0")
+
+    # Ensure columns exist in picklists
+    c.execute("PRAGMA table_info(picklists)")
+    picklist_columns = [row[1] for row in c.fetchall()]
+    if "transfer_status" not in picklist_columns:
+        c.execute("ALTER TABLE picklists ADD COLUMN transfer_status TEXT DEFAULT 'Pending Transfer Decision'")
+    if "transfer_rejection_reason" not in picklist_columns:
+        c.execute("ALTER TABLE picklists ADD COLUMN transfer_rejection_reason TEXT")
 
     # Migrate stock_balances to support unique batches per location
     c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='stock_balances'")
@@ -2089,6 +2111,13 @@ def create_picklist():
             # NOTE: If we wanted to deduct stock immediately upon Picklist creation, we would do it here.
             # Currently leaving stock as is, just tracking the picklist.
             
+            
+        # Create a notification for the Warehouse Admin
+        c.execute('''
+            INSERT INTO notifications (target_role, title, message, related_entity_type, related_entity_id)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('warehouse_admin', 'New Picklist Transfer Request', f'Picklist #{picklist_id} requires stock transfer approval.', 'picklist', picklist_id))
+            
         c.execute("COMMIT")
         conn.commit()
         conn.close()
@@ -2107,7 +2136,7 @@ def get_picklists():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('''
-        SELECT p.id, p.customer_id, p.status, p.created_at, c.customer_name 
+        SELECT p.id, p.customer_id, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
         FROM picklists p
         JOIN customers c ON p.customer_id = c.id
         ORDER BY p.created_at DESC
@@ -2124,7 +2153,7 @@ def get_picklist(id):
     
     # Get picklist and customer details
     c.execute('''
-        SELECT p.id, p.customer_id, p.status, p.created_at, c.customer_name 
+        SELECT p.id, p.customer_id, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
         FROM picklists p
         JOIN customers c ON p.customer_id = c.id
         WHERE p.id = ?
@@ -2240,6 +2269,74 @@ def delete_picklist(id):
     conn.commit()
     conn.close()
     return jsonify({"success": "Picklist deleted successfully"}), 200
+
+# ==========================================
+# Notifications and Decision Flow
+# ==========================================
+
+@app.route('/api/notifications', methods=['GET'])
+@login_required
+def get_notifications():
+    conn = get_db_connection()
+    c = conn.cursor()
+    auth_header = request.headers.get('Authorization')
+    token = auth_header.split(" ")[1] if auth_header else ""
+    c.execute("SELECT user_id FROM sessions WHERE token = ?", (token,))
+    session = c.fetchone()
+    
+    if not session:
+        conn.close()
+        return jsonify({"error": "Invalid session"}), 401
+        
+    c.execute("SELECT role FROM users WHERE id = ?", (session['user_id'],))
+    user = c.fetchone()
+    
+    c.execute('''
+        SELECT id, title, message, related_entity_type, related_entity_id, is_read, created_at 
+        FROM notifications 
+        WHERE target_role = ? OR target_user_id = ?
+        ORDER BY created_at DESC
+    ''', (user['role'], session['user_id']))
+    notifications = [dict(row) for row in c.fetchall()]
+    conn.close()
+    return jsonify(notifications), 200
+
+@app.route('/api/notifications/<int:id>/read', methods=['POST'])
+@login_required
+def mark_notification_read(id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("UPDATE notifications SET is_read = 1 WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True}), 200
+
+@app.route('/api/picklists/<int:id>/decision', methods=['POST'])
+@login_required
+def picklist_decision(id):
+    data = request.json
+    decision = data.get('decision')
+    reason = data.get('reason', None)
+    
+    if decision not in ['possible', 'not_possible']:
+        return jsonify({"error": "Invalid decision"}), 400
+        
+    if decision == 'not_possible' and not reason:
+        return jsonify({"error": "Reason is required when transfer is not possible"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    status = 'Transfer Possible' if decision == 'possible' else 'Transfer Not Possible'
+    
+    c.execute('''
+        UPDATE picklists 
+        SET transfer_status = ?, transfer_rejection_reason = ? 
+        WHERE id = ?
+    ''', (status, reason, id))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "status": status}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

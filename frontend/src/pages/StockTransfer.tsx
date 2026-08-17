@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth, API_URL } from '../App';
+import { useLocation } from 'react-router-dom';
 import { 
   RefreshCw, 
   MapPin, 
@@ -181,6 +182,7 @@ function SearchableMultiSelect({
 
 export default function StockTransfer() {
   const { user } = useAuth();
+  const location = useLocation();
   
   // Data states
   const [itemsPool, setItemsPool] = useState<LocationItem[]>([]);
@@ -278,6 +280,45 @@ export default function StockTransfer() {
       setSourceWarehouse(user.warehouse_code);
     }
   }, [user]);
+
+  // Pre-fill logic for picklist decisions
+  useEffect(() => {
+    if (itemsPool.length > 0 && location.state?.prefillItems) {
+      const prefillItems = location.state.prefillItems;
+      const newSelectedSourceItems: number[] = [];
+      const newDestinations: Destination[] = [];
+      
+      prefillItems.forEach((prefillItem: any) => {
+        // Find matching item in pool
+        const matchIndex = itemsPool.findIndex(
+          p => p.part_number === prefillItem.part_number && 
+               p.warehouse === prefillItem.from_warehouse && 
+               p.bin_location === prefillItem.from_bin
+        );
+        
+        if (matchIndex !== -1) {
+          newSelectedSourceItems.push(matchIndex);
+          newDestinations.push({
+            sourceItemIndex: matchIndex,
+            toWarehouse: '',
+            toBin: '',
+            qtyToTransfer: prefillItem.quantity.toString(),
+            remarks: `Transfer for Picklist #${location.state.picklist_id || ''}`
+          });
+        }
+      });
+      
+      if (newSelectedSourceItems.length > 0) {
+        setSelectedSourceItems(newSelectedSourceItems);
+        // Only set source warehouse if they all share the same source warehouse
+        const uniqueWarehouses = [...new Set(newSelectedSourceItems.map(i => itemsPool[i].warehouse))];
+        if (uniqueWarehouses.length === 1) {
+          setSourceWarehouse(uniqueWarehouses[0]);
+        }
+        setDestinations(newDestinations);
+      }
+    }
+  }, [itemsPool, location.state]);
 
   const warehouseItems = useMemo(() => {
     return itemsPool.map((item, index) => ({ item, index })).filter(({ item }) => item.warehouse === sourceWarehouse);

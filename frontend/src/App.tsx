@@ -39,15 +39,7 @@ import Picklist from './pages/Picklist';
 // import Bins from './pages/Bins';
 // import Picklist from './pages/Picklist';
 
-const NotificationsPlaceholder = () => (
-  <div className="flex items-center justify-center min-h-[50vh]">
-    <div className="text-center space-y-2">
-      <Bell size={48} className="mx-auto text-zinc-300" />
-      <h2 className="text-lg font-semibold text-zinc-700">Notifications</h2>
-      <p className="text-zinc-500 text-sm">This feature will be implemented soon.</p>
-    </div>
-  </div>
-);
+import Notifications from './pages/Notifications';
 
 // Constants — uses VITE_API_URL env var in production (set in Render dashboard)
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -139,9 +131,26 @@ export default function App() {
 
 // Global Layout with responsive navigation (Desktop Sidebar / Mobile Drawer)
 function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth();
   const location = useLocation();
   const [openMobileMenu, setOpenMobileMenu] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (user && (user.role === 'warehouse_admin' || user.role === 'superadmin')) {
+      fetch(`${API_URL}/api/notifications`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          const unread = data.filter((n: any) => !n.is_read).length;
+          setUnreadCount(unread);
+        }
+      })
+      .catch(console.error);
+    }
+  }, [user, token, location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -172,7 +181,6 @@ function Layout() {
     { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },
     { path: '/bins', name: 'Bins', icon: <Boxes size={16} /> },
     { path: '/transfer', name: 'Stock Transfer', icon: <RefreshCw size={16} /> },
-    { path: '/picklist', name: 'Picklist', icon: <ClipboardList size={16} /> },
   ] : baseMenuItems;
 
   const sidebarFooterItems: any[] = [
@@ -191,14 +199,21 @@ function Layout() {
             key={item.path}
             to={item.path}
             onClick={onClickCallback}
-            className={`flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-medium transition-all ${
+            className={`flex items-center justify-between px-3.5 py-2.5 rounded-md text-xs font-medium transition-all ${
               isActive 
                 ? 'bg-[#1e2536] text-white' 
                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40'
             }`}
           >
-            {item.icon}
-            <span>{item.name}</span>
+            <div className="flex items-center gap-3">
+              {item.icon}
+              <span>{item.name}</span>
+            </div>
+            {item.path === '/notifications' && unreadCount > 0 && (
+              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-indigo-600 text-[10px] font-bold text-white">
+                {unreadCount}
+              </span>
+            )}
           </Link>
         );
       })}
@@ -358,7 +373,7 @@ function Layout() {
             <Route path="/customers" element={<Customers />} />
             <Route path="/picklist" element={<Picklist />} />
             <Route path="/bins" element={<Bins />} />
-            <Route path="/notifications" element={<NotificationsPlaceholder />} />
+            <Route path="/notifications" element={<Notifications />} />
             {user?.role === 'superadmin' && (
               <>
                 <Route path="/users" element={<Users />} />

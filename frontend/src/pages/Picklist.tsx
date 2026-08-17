@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Trash2, Check, X, AlertCircle, Edit, Calendar, Package } from 'lucide-react';
 import { API_URL, useAuth } from '../App';
+import { cn } from "@/lib/utils";
 
 interface Customer {
   id: number;
@@ -29,6 +30,8 @@ interface PicklistData {
   customer_name: string;
   status: string;
   created_at: string;
+  transfer_status?: string;
+  transfer_rejection_reason?: string;
 }
 
 type TabMode = 'CREATE' | 'MANAGE';
@@ -42,6 +45,8 @@ export default function Picklist() {
   const [picklists, setPicklists] = useState<PicklistData[]>([]);
   const [loadingPicklists, setLoadingPicklists] = useState(false);
   const [editingPicklistId, setEditingPicklistId] = useState<number | null>(null);
+  const [editingPicklistTransferStatus, setEditingPicklistTransferStatus] = useState<string | null>(null);
+  const [editingPicklistRejectionReason, setEditingPicklistRejectionReason] = useState<string | null>(null);
 
   // Customers State
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -194,12 +199,16 @@ export default function Picklist() {
     setSubmitError(null);
     setSubmitSuccess(null);
     setEditingPicklistId(null);
+    setEditingPicklistTransferStatus(null);
+    setEditingPicklistRejectionReason(null);
   };
 
   const handleEditPicklist = async (picklist: PicklistData) => {
     resetForm();
     setActiveTab('CREATE');
     setEditingPicklistId(picklist.id);
+    setEditingPicklistTransferStatus(picklist.transfer_status || null);
+    setEditingPicklistRejectionReason(picklist.transfer_rejection_reason || null);
     
     // Set Customer
     const cust = customers.find(c => c.id === picklist.customer_id);
@@ -374,16 +383,17 @@ export default function Picklist() {
               <thead className="text-xs text-zinc-500 bg-zinc-50 uppercase border-b border-zinc-100">
                 <tr>
                   <th className="px-6 py-4">ID</th>
-                  <th className="px-6 py-4">Customer</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4">Date Created</th>
+                  <th className="px-6 py-4 font-medium">Customer</th>
+                  <th className="px-6 py-4 font-medium">Status</th>
+                  <th className="px-6 py-4 font-medium">Transfer Status</th>
+                  <th className="px-6 py-4 font-medium">Created</th>
                   <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loadingPicklists ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">Loading picklists...</td>
+                    <td colSpan={6} className="px-6 py-8 text-center text-zinc-500">Loading picklists...</td>
                   </tr>
                 ) : picklists.length > 0 ? (
                   picklists.map(pl => (
@@ -394,6 +404,22 @@ export default function Picklist() {
                         <span className="bg-amber-100 text-amber-700 text-xs font-medium px-2.5 py-1 rounded-full">
                           {pl.status}
                         </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col gap-1">
+                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full w-fit ${
+                            pl.transfer_status === 'Transfer Possible' ? "bg-emerald-100 text-emerald-800" :
+                            pl.transfer_status === 'Transfer Not Possible' ? "bg-red-100 text-red-800" :
+                            "bg-blue-100 text-blue-800"
+                          }`}>
+                            {pl.transfer_status || 'Pending Transfer Decision'}
+                          </span>
+                          {pl.transfer_status === 'Transfer Not Possible' && pl.transfer_rejection_reason && (
+                            <span className="text-[10px] text-red-600 bg-red-50 p-1 rounded border border-red-100">
+                              Reason: {pl.transfer_rejection_reason}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-zinc-500 flex items-center gap-1.5">
                         <Calendar size={14} />
@@ -419,7 +445,7 @@ export default function Picklist() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-zinc-500 flex flex-col items-center justify-center">
+                    <td colSpan={6} className="px-6 py-8 text-center text-zinc-500 flex flex-col items-center justify-center">
                       <Package size={48} className="text-zinc-300 mb-3" />
                       <p>No picklists found.</p>
                     </td>
@@ -434,9 +460,26 @@ export default function Picklist() {
       {activeTab === 'CREATE' && (
         <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
           <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-zinc-800">
-              {editingPicklistId ? `Editing Picklist #${editingPicklistId}` : '1. Select Customer'}
-            </h2>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-lg font-semibold text-zinc-800">
+                {editingPicklistId ? `Editing Picklist #${editingPicklistId}` : '1. Select Customer'}
+              </h2>
+              {editingPicklistTransferStatus && (
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "text-xs font-medium px-2.5 py-1 rounded-full w-fit",
+                    editingPicklistTransferStatus === 'Transfer Possible' ? "bg-emerald-100 text-emerald-800" :
+                    editingPicklistTransferStatus === 'Transfer Not Possible' ? "bg-red-100 text-red-800" :
+                    "bg-blue-100 text-blue-800"
+                  )}>
+                    {editingPicklistTransferStatus}
+                  </span>
+                  {editingPicklistTransferStatus === 'Transfer Not Possible' && editingPicklistRejectionReason && (
+                    <span className="text-xs text-red-600">Reason: {editingPicklistRejectionReason}</span>
+                  )}
+                </div>
+              )}
+            </div>
             {editingPicklistId && (
               <button 
                 onClick={() => { setActiveTab('MANAGE'); resetForm(); }}
@@ -576,6 +619,7 @@ export default function Picklist() {
                             <th className="px-4 py-3">Bin</th>
                             <th className="px-4 py-3">Available</th>
                             <th className="px-4 py-3 w-40">Required Qty</th>
+                            {editingPicklistId && <th className="px-4 py-3 w-40">Transfer Status</th>}
                           </tr>
                         </thead>
                         <tbody>
@@ -599,12 +643,26 @@ export default function Picklist() {
                                       placeholder="0"
                                     />
                                   </td>
+                                  {editingPicklistId && (
+                                    <td className="px-4 py-3">
+                                      {val !== '' && (
+                                        <span className={cn(
+                                          "text-[10px] font-medium px-2 py-0.5 rounded-full w-fit whitespace-nowrap",
+                                          editingPicklistTransferStatus === 'Transfer Possible' ? "bg-emerald-100 text-emerald-800" :
+                                          editingPicklistTransferStatus === 'Transfer Not Possible' ? "bg-red-100 text-red-800" :
+                                          "bg-blue-100 text-blue-800"
+                                        )}>
+                                          {editingPicklistTransferStatus || 'Pending Decision'}
+                                        </span>
+                                      )}
+                                    </td>
+                                  )}
                                 </tr>
                               );
                             })
                           ) : (
                             <tr>
-                              <td colSpan={4} className="px-4 py-4 text-center text-zinc-500 text-sm">
+                              <td colSpan={editingPicklistId ? 5 : 4} className="px-4 py-4 text-center text-zinc-500 text-sm">
                                 No stock available in any bins.
                               </td>
                             </tr>
