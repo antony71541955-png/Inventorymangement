@@ -273,6 +273,12 @@ export default function StockTransfer() {
     fetchLocations();
   }, []);
 
+  useEffect(() => {
+    if (user?.role === 'warehouse_admin' && user?.warehouse_code) {
+      setSourceWarehouse(user.warehouse_code);
+    }
+  }, [user]);
+
   const warehouseItems = useMemo(() => {
     return itemsPool.map((item, index) => ({ item, index })).filter(({ item }) => item.warehouse === sourceWarehouse);
   }, [itemsPool, sourceWarehouse]);
@@ -483,6 +489,7 @@ export default function StockTransfer() {
                     onChange={(val) => handleSourceWarehouseChange(val as string)}
                     placeholder="-- Select Source Warehouse --"
                     className="h-[38px]"
+                    disabled={user?.role === 'warehouse_admin'}
                   />
                 </div>
 

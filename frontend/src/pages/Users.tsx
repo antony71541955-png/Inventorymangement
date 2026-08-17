@@ -22,6 +22,7 @@ interface UserItem {
   username: string;
   full_name: string;
   role: string;
+  warehouse_code?: string;
 }
 
 export default function Users() {
@@ -34,6 +35,8 @@ export default function Users() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('operator');
+  const [warehouseCode, setWarehouseCode] = useState('');
+  const [warehouses, setWarehouses] = useState<any[]>([]);
   
   // Feedback alerts
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +61,21 @@ export default function Users() {
     }
   };
 
+  const fetchWarehouses = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/warehouses`);
+      if (response.ok) {
+        const data = await response.json();
+        setWarehouses(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch warehouses', e);
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchWarehouses();
   }, []);
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -76,7 +92,8 @@ export default function Users() {
           username: username.trim().toLowerCase(),
           password,
           full_name: fullName.trim(),
-          role
+          role,
+          warehouse_code: role === 'warehouse_admin' ? warehouseCode : undefined
         }),
       });
 
@@ -91,6 +108,7 @@ export default function Users() {
       setUsername('');
       setPassword('');
       setRole('operator');
+      setWarehouseCode('');
       // Reload directory
       fetchUsers();
     } catch (err: any) {
@@ -206,9 +224,26 @@ export default function Users() {
                       <SelectItem value="operator">Operator (Data Entry)</SelectItem>
                       <SelectItem value="admin">Administrator</SelectItem>
                       <SelectItem value="superadmin">Super Administrator</SelectItem>
+                      <SelectItem value="warehouse_admin">Warehouse Admin</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
+                {role === 'warehouse_admin' && (
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Assign Warehouse</label>
+                    <Select value={warehouseCode} onValueChange={(val) => setWarehouseCode(val)}>
+                      <SelectTrigger className="bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-indigo-600">
+                        <SelectValue placeholder="Select warehouse" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border-zinc-200 text-zinc-900">
+                        {warehouses.map(wh => (
+                          <SelectItem key={wh.code} value={wh.code}>{wh.name} ({wh.code})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 <Button 
                   id="create-user-btn"

@@ -46,7 +46,8 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             full_name TEXT NOT NULL,
-            role TEXT DEFAULT 'operator'
+            role TEXT DEFAULT 'operator',
+            warehouse_code TEXT
         )
     ''')
     
@@ -143,6 +144,30 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    # 9. Picklists Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS picklists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            status TEXT DEFAULT 'Pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+        )
+    ''')
+
+    # 10. Picklist Items Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS picklist_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            picklist_id INTEGER NOT NULL,
+            part_number TEXT NOT NULL,
+            warehouse TEXT NOT NULL,
+            bin_location TEXT NOT NULL,
+            required_quantity INTEGER NOT NULL,
+            FOREIGN KEY(picklist_id) REFERENCES picklists(id) ON DELETE CASCADE,
+            FOREIGN KEY(part_number) REFERENCES items(part_number) ON DELETE CASCADE
+        )
+    ''')
     
     # Add indices for fast pagination over 25,000+ items
     c.execute("CREATE INDEX IF NOT EXISTS idx_items_part_number ON items(part_number)")
@@ -209,6 +234,12 @@ def init_db():
     c.execute("UPDATE stock_balances SET batch_no = '' WHERE batch_no IS NULL")
     c.execute("UPDATE stock_balances SET expiry = '' WHERE expiry IS NULL")
 
+    c.execute("PRAGMA table_info(users)")
+    user_cols = [row[1] for row in c.fetchall()]
+    if "warehouse_code" not in user_cols:
+        c.execute("ALTER TABLE users ADD COLUMN warehouse_code TEXT")
+
+
     # Create default user if not exists (username: admin, password: password123)
     c.execute("SELECT id FROM users WHERE username = 'admin'")
     if not c.fetchone():
@@ -262,7 +293,7 @@ def get_current_user():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('''
-        SELECT users.id, users.username, users.full_name, users.role 
+        SELECT users.id, users.username, users.full_name, users.role, users.warehouse_code 
         FROM sessions 
         JOIN users ON sessions.user_id = users.id 
         WHERE sessions.token = ?
@@ -275,7 +306,8 @@ def get_current_user():
             "id": user["id"],
             "username": user["username"],
             "full_name": user["full_name"],
-            "role": user["role"]
+            "role": user["role"],
+            "warehouse_code": user["warehouse_code"]
         }
     return None
 
@@ -325,6 +357,7 @@ def register():
     password = data["password"]
     full_name = data["full_name"].strip()
     role = data.get("role", "operator").strip()
+    warehouse_code = data.get("warehouse_code", "").strip() if role == "warehouse_admin" else None
     
     hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
@@ -332,8 +365,8 @@ def register():
     c = conn.cursor()
     try:
         c.execute("BEGIN TRANSACTION")
-        c.execute("INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)",
-                  (username, hashed, full_name, role))
+        c.execute("INSERT INTO users (username, password_hash, full_name, role, warehouse_code) VALUES (?, ?, ?, ?, ?)",
+                  (username, hashed, full_name, role, warehouse_code))
         
         # Log user creation in audit log (stock_journal)
         voucher = generate_voucher_number("USR-ADD")
@@ -383,7 +416,8 @@ def login():
         "user": {
             "username": user["username"],
             "full_name": user["full_name"],
-            "role": user["role"]
+            "role": user["role"],
+            "warehouse_code": user["warehouse_code"]
         }
     }), 200
 
@@ -414,7 +448,7 @@ def get_users():
     
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT id, username, full_name, role FROM users ORDER BY username")
+    c.execute("SELECT id, username, full_name, role, warehouse_code FROM users ORDER BY username")
     rows = c.fetchall()
     conn.close()
     
@@ -502,13 +536,18 @@ def get_inventory():
     allowed_sorts = ["part_number", "item_name", "category", "total_quantity"]
     if sort_by not in allowed_sorts:
         sort_by = "part_number"
+        
+    sort_column = sort_by if sort_by == "total_quantity" else f"items.{sort_by}"
+    
     if sort_dir.upper() not in ["ASC", "DESC"]:
         sort_dir = "ASC"
         
+    join_clause = "LEFT JOIN stock_balances ON items.part_number = stock_balances.part_number" if warehouse or bin_location else ""
+    
     # Query to fetch items and aggregate quantities across locations
     # Note: Using subqueries or LEFT JOIN to make sure we fetch total quantity
     query = f'''
-        SELECT 
+        SELECT DISTINCT
             items.id, 
             items.part_number, 
             items.item_name, 
@@ -523,8 +562,9 @@ def get_inventory():
             items.selling_price,
             IFNULL((SELECT SUM(quantity) FROM stock_balances WHERE stock_balances.part_number = items.part_number), 0) AS total_quantity
         FROM items
+        {join_clause}
         {where_clause}
-        ORDER BY {sort_by} {sort_dir}
+        ORDER BY {sort_column} {sort_dir}
         LIMIT ? OFFSET ?
     '''
     
@@ -532,7 +572,7 @@ def get_inventory():
     count_query = f'''
         SELECT COUNT(DISTINCT items.id) 
         FROM items
-        {"LEFT JOIN stock_balances ON items.part_number = stock_balances.part_number" if warehouse or bin_location else ""}
+        {join_clause}
         {where_clause}
     '''
     
@@ -1492,35 +1532,42 @@ def upload_reconciliation_excel():
 @login_required
 def get_stock_report():
     group_by = request.args.get("group_by", "item").strip() # 'item', 'warehouse', 'bin'
+    warehouse = request.args.get("warehouse", "").strip()
     
     conn = get_db_connection()
     c = conn.cursor()
     
+    where_clause = "WHERE stock_balances.warehouse = ?" if warehouse else ""
+    params = (warehouse,) if warehouse else ()
+    
     if group_by == 'warehouse':
-        c.execute('''
+        c.execute(f'''
             SELECT warehouse, SUM(quantity) as total_quantity, COUNT(DISTINCT part_number) as distinct_skus
             FROM stock_balances
+            {where_clause}
             GROUP BY warehouse
             ORDER BY total_quantity DESC
-        ''')
+        ''', params)
         report = [dict(r) for r in rows] if (rows := c.fetchall()) else []
     elif group_by == 'bin':
-        c.execute('''
+        c.execute(f'''
             SELECT warehouse, bin_location, SUM(quantity) as total_quantity
             FROM stock_balances
+            {where_clause}
             GROUP BY warehouse, bin_location
             ORDER BY warehouse, bin_location
-        ''')
+        ''', params)
         report = [dict(r) for r in rows] if (rows := c.fetchall()) else []
     else: # item
-        c.execute('''
+        c.execute(f'''
             SELECT items.part_number, items.item_name, items.category, 
                    IFNULL(SUM(stock_balances.quantity), 0) as total_quantity
             FROM items
             LEFT JOIN stock_balances ON items.part_number = stock_balances.part_number
+            {where_clause}
             GROUP BY items.part_number
             ORDER BY total_quantity DESC
-        ''')
+        ''', params)
         report = [dict(r) for r in rows] if (rows := c.fetchall()) else []
         
     conn.close()
@@ -1571,27 +1618,46 @@ def get_dead_stock():
 @app.route('/api/reports/alerts', methods=['GET'])
 @login_required
 def get_stock_alerts():
+    warehouse = request.args.get("warehouse", "").strip()
     conn = get_db_connection()
     c = conn.cursor()
     
     # Low stock alerts: Total stock quantity < minimum stock configured
-    c.execute('''
-        SELECT items.part_number, items.item_name, items.min_stock,
-               IFNULL(SUM(stock_balances.quantity), 0) as total_quantity
-        FROM items
-        LEFT JOIN stock_balances ON items.part_number = stock_balances.part_number
-        GROUP BY items.part_number
-        HAVING total_quantity < items.min_stock
-        ORDER BY total_quantity ASC
-    ''')
+    if warehouse:
+        c.execute('''
+            SELECT items.part_number, items.item_name, items.min_stock,
+                   IFNULL(SUM(stock_balances.quantity), 0) as total_quantity
+            FROM items
+            LEFT JOIN stock_balances ON items.part_number = stock_balances.part_number AND stock_balances.warehouse = ?
+            GROUP BY items.part_number
+            HAVING total_quantity < items.min_stock
+            ORDER BY total_quantity ASC
+        ''', (warehouse,))
+    else:
+        c.execute('''
+            SELECT items.part_number, items.item_name, items.min_stock,
+                   IFNULL(SUM(stock_balances.quantity), 0) as total_quantity
+            FROM items
+            LEFT JOIN stock_balances ON items.part_number = stock_balances.part_number
+            GROUP BY items.part_number
+            HAVING total_quantity < items.min_stock
+            ORDER BY total_quantity ASC
+        ''')
     low_stock = [dict(r) for r in c.fetchall()]
     
     # Negative stock: Stock levels < 0 (should not happen normally but alert if any)
-    c.execute('''
-        SELECT part_number, warehouse, bin_location, quantity
-        FROM stock_balances
-        WHERE quantity < 0
-    ''')
+    if warehouse:
+        c.execute('''
+            SELECT part_number, warehouse, bin_location, quantity
+            FROM stock_balances
+            WHERE quantity < 0 AND warehouse = ?
+        ''', (warehouse,))
+    else:
+        c.execute('''
+            SELECT part_number, warehouse, bin_location, quantity
+            FROM stock_balances
+            WHERE quantity < 0
+        ''')
     negative_stock = [dict(r) for r in c.fetchall()]
     
     conn.close()
@@ -1828,6 +1894,45 @@ def create_customer():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/customers/<int:id>', methods=['PUT'])
+@login_required
+def update_customer(id):
+    try:
+        data = request.json
+        customer_name = data.get('customer_name', '').strip()
+        cr_cash = data.get('cr_cash', '').strip()
+        location = data.get('location', '').strip()
+        salesman = data.get('salesman', '').strip()
+
+        if not customer_name:
+            return jsonify({"error": "Customer Name is required"}), 400
+
+        conn = get_db_connection()
+        c = conn.cursor()
+        
+        c.execute("SELECT id FROM customers WHERE customer_name = ? AND id != ?", (customer_name, id))
+        if c.fetchone():
+            conn.close()
+            return jsonify({"error": "Customer name already exists"}), 400
+            
+        c.execute('''
+            UPDATE customers
+            SET customer_name = ?, cr_cash = ?, location = ?, salesman = ?
+            WHERE id = ?
+        ''', (customer_name, cr_cash, location, salesman, id))
+        
+        if c.rowcount == 0:
+            conn.close()
+            return jsonify({"error": "Customer not found"}), 404
+            
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"success": "Customer updated successfully"}), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/customers/bulk', methods=['POST'])
 @login_required
 def upload_customers_bulk():
@@ -1904,6 +2009,229 @@ def upload_customers_bulk():
         
     except Exception as e:
         return jsonify({"error": f"Failed to process file: {str(e)}"}), 500
+
+# --- PICKLISTS API ROUTES ---
+
+@app.route('/api/picklists', methods=['POST'])
+@login_required
+def create_picklist():
+    data = request.json
+    customer_id = data.get('customer_id')
+    items = data.get('items', [])
+    
+    if not customer_id:
+        return jsonify({"error": "Customer is required"}), 400
+    
+    if not items or len(items) == 0:
+        return jsonify({"error": "At least one item is required in the picklist"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # Check if customer exists
+        c.execute("SELECT id FROM customers WHERE id = ?", (customer_id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({"error": "Invalid customer selected"}), 400
+            
+        c.execute("BEGIN TRANSACTION")
+        
+        # 1. Create Picklist Record
+        c.execute("INSERT INTO picklists (customer_id, status) VALUES (?, ?)", (customer_id, 'Pending'))
+        picklist_id = c.lastrowid
+        
+        # 2. Process each item and validate stock
+        for item in items:
+            part_number = item.get('part_number')
+            warehouse = item.get('warehouse')
+            bin_location = item.get('bin_location')
+            required_quantity = item.get('required_quantity', 0)
+            
+            try:
+                required_quantity = int(required_quantity)
+            except ValueError:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Invalid quantity for {part_number}"}), 400
+                
+            if required_quantity <= 0:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Quantity must be greater than 0 for {part_number}"}), 400
+                
+            # Backend Validation: Check available quantity
+            c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                      (part_number, warehouse, bin_location))
+            stock = c.fetchone()
+            
+            if not stock:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Stock not found for {part_number} at {warehouse} - {bin_location}"}), 400
+                
+            available_qty = stock['quantity']
+            if required_quantity > available_qty:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Required quantity ({required_quantity}) exceeds available ({available_qty}) for {part_number} at {warehouse} - {bin_location}"}), 400
+                
+            # Insert into picklist_items
+            c.execute('''
+                INSERT INTO picklist_items (picklist_id, part_number, warehouse, bin_location, required_quantity)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (picklist_id, part_number, warehouse, bin_location, required_quantity))
+            
+            # NOTE: If we wanted to deduct stock immediately upon Picklist creation, we would do it here.
+            # Currently leaving stock as is, just tracking the picklist.
+            
+        c.execute("COMMIT")
+        conn.commit()
+        conn.close()
+        return jsonify({"success": "Picklist created successfully", "picklist_id": picklist_id}), 201
+        
+    except Exception as e:
+        c.execute("ROLLBACK")
+        conn.close()
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/picklists', methods=['GET'])
+@login_required
+def get_picklists():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('''
+        SELECT p.id, p.customer_id, p.status, p.created_at, c.customer_name 
+        FROM picklists p
+        JOIN customers c ON p.customer_id = c.id
+        ORDER BY p.created_at DESC
+    ''')
+    picklists = [dict(row) for row in c.fetchall()]
+    conn.close()
+    return jsonify(picklists), 200
+
+@app.route('/api/picklists/<int:id>', methods=['GET'])
+@login_required
+def get_picklist(id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    # Get picklist and customer details
+    c.execute('''
+        SELECT p.id, p.customer_id, p.status, p.created_at, c.customer_name 
+        FROM picklists p
+        JOIN customers c ON p.customer_id = c.id
+        WHERE p.id = ?
+    ''', (id,))
+    picklist = c.fetchone()
+    
+    if not picklist:
+        conn.close()
+        return jsonify({"error": "Picklist not found"}), 404
+        
+    # Get items
+    c.execute('''
+        SELECT pi.id as item_id, pi.part_number, pi.warehouse, pi.bin_location, pi.required_quantity,
+               i.item_name
+        FROM picklist_items pi
+        JOIN items i ON pi.part_number = i.part_number
+        WHERE pi.picklist_id = ?
+    ''', (id,))
+    items = [dict(row) for row in c.fetchall()]
+    
+    conn.close()
+    result = dict(picklist)
+    result["items"] = items
+    return jsonify(result), 200
+
+@app.route('/api/picklists/<int:id>', methods=['PUT'])
+@login_required
+def update_picklist(id):
+    data = request.json
+    status = data.get('status', 'Pending')
+    items = data.get('items', [])
+    
+    if not items or len(items) == 0:
+        return jsonify({"error": "At least one item is required in the picklist"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        c.execute("SELECT id FROM picklists WHERE id = ?", (id,))
+        if not c.fetchone():
+            conn.close()
+            return jsonify({"error": "Picklist not found"}), 404
+            
+        c.execute("BEGIN TRANSACTION")
+        
+        # 1. Update picklist status
+        c.execute("UPDATE picklists SET status = ? WHERE id = ?", (status, id))
+        
+        # 2. Delete existing items
+        c.execute("DELETE FROM picklist_items WHERE picklist_id = ?", (id,))
+        
+        # 3. Insert new items and validate stock
+        for item in items:
+            part_number = item.get('part_number')
+            warehouse = item.get('warehouse')
+            bin_location = item.get('bin_location')
+            required_quantity = item.get('required_quantity', 0)
+            
+            try:
+                required_quantity = int(required_quantity)
+            except ValueError:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Invalid quantity for {part_number}"}), 400
+                
+            if required_quantity <= 0:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Quantity must be greater than 0 for {part_number}"}), 400
+                
+            # Backend Validation: Check available quantity
+            c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                      (part_number, warehouse, bin_location))
+            stock = c.fetchone()
+            
+            if not stock:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Stock not found for {part_number} at {warehouse} - {bin_location}"}), 400
+                
+            available_qty = stock['quantity']
+            if required_quantity > available_qty:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Required quantity ({required_quantity}) exceeds available ({available_qty}) for {part_number} at {warehouse} - {bin_location}"}), 400
+                
+            c.execute('''
+                INSERT INTO picklist_items (picklist_id, part_number, warehouse, bin_location, required_quantity)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (id, part_number, warehouse, bin_location, required_quantity))
+            
+        c.execute("COMMIT")
+        conn.commit()
+        conn.close()
+        return jsonify({"success": "Picklist updated successfully"}), 200
+        
+    except Exception as e:
+        c.execute("ROLLBACK")
+        conn.close()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/picklists/<int:id>', methods=['DELETE'])
+@login_required
+def delete_picklist(id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM picklists WHERE id = ?", (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": "Picklist deleted successfully"}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

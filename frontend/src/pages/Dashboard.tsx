@@ -47,16 +47,17 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const alertsRes = await fetch(`${API_URL}/api/reports/alerts`);
+        const whParam = user?.role === 'warehouse_admin' && user?.warehouse_code ? `?warehouse=${user.warehouse_code}` : '';
+        const alertsRes = await fetch(`${API_URL}/api/reports/alerts${whParam}`);
         const alertsData = await alertsRes.json();
         setLowStockAlerts(Array.isArray(alertsData.low_stock) ? alertsData.low_stock : []);
         setNegStockAlerts(Array.isArray(alertsData.negative_stock) ? alertsData.negative_stock : []);
 
-        const distRes = await fetch(`${API_URL}/api/reports/stock?group_by=warehouse`);
+        const distRes = await fetch(`${API_URL}/api/reports/stock?group_by=warehouse${whParam ? `&warehouse=${user?.warehouse_code || ''}` : ''}`);
         const distData = await distRes.json();
         setWhDist(Array.isArray(distData) ? distData : []);
 
-        const stockRes = await fetch(`${API_URL}/api/reports/stock?group_by=item`);
+        const stockRes = await fetch(`${API_URL}/api/reports/stock?group_by=item${whParam ? `&warehouse=${user?.warehouse_code || ''}` : ''}`);
         const stockData = await stockRes.json();
         
         const totalQty = Array.isArray(stockData) ? stockData.reduce((acc: number, item: any) => acc + item.total_quantity, 0) : 0;

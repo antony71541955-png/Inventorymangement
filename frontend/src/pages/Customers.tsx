@@ -7,8 +7,10 @@ import {
   AlertCircle,
   CheckCircle2,
   FileSpreadsheet,
-  Download
+  Download,
+  Pencil
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +46,14 @@ export default function Customers() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Edit state
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<CustomerItem | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editCrCash, setEditCrCash] = useState('CR');
+  const [editLocation, setEditLocation] = useState('DUBAI');
+  const [editSalesman, setEditSalesman] = useState('ISAMAIL');
 
   const fetchCustomers = async () => {
     setLoading(true);
@@ -151,6 +161,54 @@ export default function Customers() {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+    }
+  };
+
+  const openEditDialog = (customer: CustomerItem) => {
+    setEditingCustomer(customer);
+    setEditCustomerName(customer.customer_name);
+    setEditCrCash(customer.cr_cash);
+    setEditLocation(customer.location);
+    setEditSalesman(customer.salesman);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomer) return;
+    
+    setError(null);
+    setSuccess(null);
+    setActionLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/api/customers/${editingCustomer.id}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          customer_name: editCustomerName,
+          cr_cash: editCrCash,
+          location: editLocation,
+          salesman: editSalesman
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Customer update failed.');
+      }
+
+      setSuccess(`Customer "${editCustomerName}" updated successfully!`);
+      setIsEditDialogOpen(false);
+      setEditingCustomer(null);
+      fetchCustomers();
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong while updating the customer.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -320,6 +378,7 @@ export default function Customers() {
                     <TableHead className="text-[10px] font-bold text-zinc-500 tracking-wider uppercase h-9">Type</TableHead>
                     <TableHead className="text-[10px] font-bold text-zinc-500 tracking-wider uppercase h-9">Location</TableHead>
                     <TableHead className="text-[10px] font-bold text-zinc-500 tracking-wider uppercase h-9">Salesman</TableHead>
+                    <TableHead className="w-[60px] text-[10px] font-bold text-zinc-500 tracking-wider uppercase h-9 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -331,7 +390,7 @@ export default function Customers() {
                     </TableRow>
                   ) : customersList.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-32 text-center text-xs text-zinc-500">
+                      <TableCell colSpan={6} className="h-32 text-center text-xs text-zinc-500">
                         No customers found. Create one or upload a list.
                       </TableCell>
                     </TableRow>
@@ -353,6 +412,16 @@ export default function Customers() {
                         <TableCell className="text-xs font-medium text-zinc-700 py-3">
                           {customer.salesman}
                         </TableCell>
+                        <TableCell className="text-right py-3">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => openEditDialog(customer)}
+                            className="h-7 w-7 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50"
+                          >
+                            <Pencil size={14} />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -362,6 +431,80 @@ export default function Customers() {
           </Card>
         </div>
       </div>
+      
+      {/* Edit Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-zinc-800">Edit Customer</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleEditSubmit} className="space-y-4 pt-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700">Customer Name</label>
+              <Input 
+                type="text" 
+                required 
+                value={editCustomerName}
+                onChange={(e) => setEditCustomerName(e.target.value)}
+                className="h-9 text-xs"
+              />
+            </div>
+            
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700">CR / CASH</label>
+              <Select value={editCrCash} onValueChange={setEditCrCash}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CR" className="text-xs">CR</SelectItem>
+                  <SelectItem value="CASH" className="text-xs">CASH</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700">Location</label>
+              <Input 
+                type="text" 
+                required 
+                value={editLocation}
+                onChange={(e) => setEditLocation(e.target.value)}
+                className="h-9 text-xs"
+              />
+            </div>
+            
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700">Salesman</label>
+              <Input 
+                type="text" 
+                required 
+                value={editSalesman}
+                onChange={(e) => setEditSalesman(e.target.value)}
+                className="h-9 text-xs"
+              />
+            </div>
+            
+            <div className="flex justify-end gap-2 pt-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setIsEditDialogOpen(false)}
+                className="h-9 text-xs font-medium"
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={actionLoading} 
+                className="h-9 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                {actionLoading ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

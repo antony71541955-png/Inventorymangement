@@ -17,7 +17,8 @@ import {
   MapPin,
   User,
   Users as UsersIcon,
-  History
+  History,
+  ClipboardList
 } from 'lucide-react';
 
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -33,6 +34,20 @@ import Locations from './pages/Locations';
 import Users from './pages/Users';
 import AuditLogs from './pages/AuditLogs';
 import Customers from './pages/Customers';
+import Bins from './pages/Bins';
+import Picklist from './pages/Picklist';
+// import Bins from './pages/Bins';
+// import Picklist from './pages/Picklist';
+
+const NotificationsPlaceholder = () => (
+  <div className="flex items-center justify-center min-h-[50vh]">
+    <div className="text-center space-y-2">
+      <Bell size={48} className="mx-auto text-zinc-300" />
+      <h2 className="text-lg font-semibold text-zinc-700">Notifications</h2>
+      <p className="text-zinc-500 text-sm">This feature will be implemented soon.</p>
+    </div>
+  </div>
+);
 
 // Constants — uses VITE_API_URL env var in production (set in Render dashboard)
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -42,6 +57,7 @@ interface AuthUser {
   username: string;
   full_name: string;
   role: string;
+  warehouse_code?: string;
 }
 
 interface AuthContextType {
@@ -144,12 +160,19 @@ function Layout() {
     { path: '/reports', name: 'Reports & Logs', icon: <BarChart3 size={16} /> },
     { path: '/locations', name: 'Locations Setup', icon: <MapPin size={16} /> },
     { path: '/customers', name: 'Customers', icon: <UsersIcon size={16} /> },
+    { path: '/picklist', name: 'Picklist', icon: <ClipboardList size={16} /> },
   ];
 
   const menuItems = user?.role === 'superadmin' ? [
     ...baseMenuItems,
     { path: '/users', name: 'User Management', icon: <User size={16} /> },
     { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> }
+  ] : user?.role === 'warehouse_admin' ? [
+    { path: '/', name: 'Dashboard', icon: <LayoutDashboard size={16} /> },
+    { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },
+    { path: '/bins', name: 'Bins', icon: <Boxes size={16} /> },
+    { path: '/transfer', name: 'Stock Transfer', icon: <RefreshCw size={16} /> },
+    { path: '/picklist', name: 'Picklist', icon: <ClipboardList size={16} /> },
   ] : baseMenuItems;
 
   const sidebarFooterItems: any[] = [
@@ -333,6 +356,9 @@ function Layout() {
             <Route path="/reports" element={<Reports />} />
             <Route path="/locations" element={<Locations />} />
             <Route path="/customers" element={<Customers />} />
+            <Route path="/picklist" element={<Picklist />} />
+            <Route path="/bins" element={<Bins />} />
+            <Route path="/notifications" element={<NotificationsPlaceholder />} />
             {user?.role === 'superadmin' && (
               <>
                 <Route path="/users" element={<Users />} />
