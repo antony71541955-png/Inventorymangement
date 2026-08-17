@@ -10,18 +10,16 @@ import {
   AlertCircle,
   Plus,
   Trash2,
-  ChevronDown
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
-import { 
-  DropdownMenu, 
-  DropdownMenuTrigger, 
-  DropdownMenuContent, 
-  DropdownMenuCheckboxItem 
-} from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 
 interface LocationItem {
   part_number: string;
@@ -44,6 +42,141 @@ interface TransferRecord {
   user_name: string;
   remarks: string;
   timestamp: string;
+}
+
+function SearchableSelect({
+  options,
+  value,
+  onChange,
+  placeholder = "Select...",
+  emptyText = "No results found.",
+  className,
+  disabled = false
+}: {
+  options: { label: string; value: string | number }[];
+  value: string | number;
+  onChange: (val: string | number) => void;
+  placeholder?: string;
+  emptyText?: string;
+  className?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const selectedOption = options.find((opt) => opt.value === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className={cn("w-full justify-between font-normal text-xs bg-white border-zinc-200 px-3", className)}
+          disabled={disabled}
+        >
+          <span className="truncate pr-2">
+            {selectedOption ? selectedOption.label : <span className="text-zinc-500">{placeholder}</span>}
+          </span>
+          <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command filter={(value, search) => value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}>
+          <CommandInput placeholder="Search..." className="h-9 text-xs" />
+          <CommandList className="max-h-[200px]">
+            <CommandEmpty className="text-xs py-2 text-center text-zinc-500">{emptyText}</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => (
+                <CommandItem
+                  key={option.value}
+                  value={option.label}
+                  onSelect={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className="text-xs cursor-pointer"
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value === option.value ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  {option.label}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function SearchableMultiSelect({
+  options,
+  selectedValues,
+  onChange,
+  placeholder = "Select...",
+  emptyText = "No results found.",
+  disabled = false,
+  className
+}: {
+  options: { label: React.ReactNode; textValue: string; value: number }[];
+  selectedValues: number[];
+  onChange: (val: number) => void;
+  placeholder?: string;
+  emptyText?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className={cn("w-full justify-between font-normal text-xs bg-white border-zinc-200 px-3", className)}
+          disabled={disabled}
+        >
+          {selectedValues.length > 0 
+            ? `${selectedValues.length} item(s) selected` 
+            : <span className="text-zinc-500">{placeholder}</span>}
+          <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command filter={(value, search) => value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}>
+          <CommandInput placeholder="Search items..." className="h-9 text-xs" />
+          <CommandList className="max-h-[300px]">
+            <CommandEmpty className="text-xs py-2 text-center text-zinc-500">{emptyText}</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => {
+                const isSelected = selectedValues.includes(option.value);
+                return (
+                  <CommandItem
+                    key={option.value}
+                    value={option.textValue}
+                    onSelect={() => {
+                      onChange(option.value);
+                    }}
+                    className="text-xs py-2 cursor-pointer"
+                  >
+                    <div className={cn("mr-2 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border", isSelected ? "bg-zinc-900 border-zinc-900 text-white" : "border-zinc-300 opacity-50")}>
+                      {isSelected && <Check className="h-3 w-3" />}
+                    </div>
+                    <div>{option.label}</div>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function StockTransfer() {
@@ -290,6 +423,28 @@ export default function StockTransfer() {
     }
   };
 
+  // Compute options for dropdowns
+  const warehouseOptions = Object.keys(locations).map(wh => ({ label: wh, value: wh }));
+  
+  const multiSelectItems = warehouseItems.map(({ item, index }) => ({
+    label: (
+      <div className="flex flex-col">
+        <span className="font-semibold">{item.part_number} <span className="font-normal text-zinc-600">- {item.item_name}</span></span>
+        <span className="text-[10px] text-zinc-500">Bin: {item.bin_location} | Bal: {item.quantity}</span>
+      </div>
+    ),
+    textValue: `${item.part_number} ${item.item_name} ${item.bin_location}`, // searchable text
+    value: index
+  }));
+
+  const selectedItemsOptions = selectedSourceItems.map(idx => {
+    const item = itemsPool[idx];
+    return {
+      label: `${item.part_number} - ${item.item_name} (Bal: ${item.quantity})`,
+      value: idx
+    };
+  });
+
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       <div>
@@ -322,51 +477,25 @@ export default function StockTransfer() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Source Warehouse*</label>
-                  <select
-                    className="w-full p-2.5 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900 h-[38px]"
+                  <SearchableSelect
+                    options={warehouseOptions}
                     value={sourceWarehouse}
-                    onChange={(e) => handleSourceWarehouseChange(e.target.value)}
-                  >
-                    <option value="">-- Select Source Warehouse --</option>
-                    {Object.keys(locations).map((wh) => (
-                      <option key={wh} value={wh}>{wh}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => handleSourceWarehouseChange(val as string)}
+                    placeholder="-- Select Source Warehouse --"
+                    className="h-[38px]"
+                  />
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Select Items*</label>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button 
-                        variant="outline" 
-                        className="w-full justify-between font-normal text-xs bg-white border-zinc-200 h-[38px] px-3"
-                        disabled={!sourceWarehouse || loadingItems}
-                      >
-                        {selectedSourceItems.length > 0 
-                          ? `${selectedSourceItems.length} item(s) selected` 
-                          : '-- Select Items --'}
-                        <ChevronDown className="h-4 w-4 opacity-50" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="w-80 max-h-[300px] overflow-y-auto" align="start">
-                      {warehouseItems.length === 0 ? (
-                        <div className="p-2 text-xs text-zinc-500 text-center">No items available</div>
-                      ) : (
-                        warehouseItems.map(({ item, index }) => (
-                          <DropdownMenuCheckboxItem
-                            key={index}
-                            checked={selectedSourceItems.includes(index)}
-                            onCheckedChange={() => toggleSourceItem(index)}
-                            className="text-xs py-2"
-                          >
-                            <span className="font-semibold mr-1">{item.part_number}</span> - {item.item_name} <br/>
-                            <span className="text-[10px] text-zinc-500 ml-1">Bin: {item.bin_location} | Bal: {item.quantity}</span>
-                          </DropdownMenuCheckboxItem>
-                        ))
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <SearchableMultiSelect
+                    options={multiSelectItems}
+                    selectedValues={selectedSourceItems}
+                    onChange={toggleSourceItem}
+                    placeholder="-- Select Items --"
+                    disabled={!sourceWarehouse || loadingItems}
+                    className="h-[38px]"
+                  />
                 </div>
               </div>
 
@@ -412,51 +541,37 @@ export default function StockTransfer() {
                       <div className="grid grid-cols-1">
                         <div className="space-y-1">
                           <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Transfer Item*</label>
-                          <select
-                            className="w-full p-2 h-9 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                          <SearchableSelect
+                            options={selectedItemsOptions}
                             value={dest.sourceItemIndex}
-                            onChange={(e) => updateDestination(index, 'sourceItemIndex', e.target.value === '' ? '' : parseInt(e.target.value))}
-                            required
-                          >
-                            <option value="">-- Select Item --</option>
-                            {selectedSourceItems.map((idx) => (
-                              <option key={idx} value={idx}>
-                                {itemsPool[idx].part_number} - {itemsPool[idx].item_name} (Bal: {itemsPool[idx].quantity})
-                              </option>
-                            ))}
-                          </select>
+                            onChange={(val) => updateDestination(index, 'sourceItemIndex', val)}
+                            placeholder="-- Select Item --"
+                            className="h-9"
+                          />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Warehouse*</label>
-                          <select
-                            className="w-full p-2 h-9 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                          <SearchableSelect
+                            options={warehouseOptions}
                             value={dest.toWarehouse}
-                            onChange={(e) => updateDestination(index, 'toWarehouse', e.target.value)}
-                            required
-                          >
-                            <option value="">-- Select --</option>
-                            {Object.keys(locations).map((wh) => (
-                              <option key={wh} value={wh}>{wh}</option>
-                            ))}
-                          </select>
+                            onChange={(val) => updateDestination(index, 'toWarehouse', val as string)}
+                            placeholder="-- Select --"
+                            className="h-9"
+                          />
                         </div>
                         <div className="space-y-1">
                           <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Bin*</label>
-                          <select
-                            className="w-full p-2 h-9 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-900"
+                          <SearchableSelect
+                            options={(locations[dest.toWarehouse] || []).map(bin => ({ label: bin, value: bin }))}
                             value={dest.toBin}
-                            onChange={(e) => updateDestination(index, 'toBin', e.target.value)}
-                            required
+                            onChange={(val) => updateDestination(index, 'toBin', val as string)}
+                            placeholder="-- Select --"
                             disabled={!dest.toWarehouse}
-                          >
-                            <option value="">-- Select --</option>
-                            {(locations[dest.toWarehouse] || []).map((bin) => (
-                              <option key={bin} value={bin}>{bin}</option>
-                            ))}
-                          </select>
+                            className="h-9"
+                          />
                         </div>
                       </div>
 
