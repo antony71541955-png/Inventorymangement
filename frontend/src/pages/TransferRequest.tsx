@@ -36,7 +36,7 @@ interface PicklistData {
 
 type TabMode = 'CREATE' | 'MANAGE';
 
-export default function Picklist() {
+export default function TransferRequest() {
   const { token } = useAuth();
   
   const [activeTab, setActiveTab] = useState<TabMode>('CREATE');

@@ -35,7 +35,7 @@ import Users from './pages/Users';
 import AuditLogs from './pages/AuditLogs';
 import Customers from './pages/Customers';
 import Bins from './pages/Bins';
-import Picklist from './pages/Picklist';
+import TransferRequest from './pages/TransferRequest';
 // import Bins from './pages/Bins';
 // import Picklist from './pages/Picklist';
 
@@ -167,7 +167,7 @@ function Layout() {
     { path: '/reports', name: 'Reports & Logs', icon: <BarChart3 size={16} /> },
     { path: '/locations', name: 'Locations Setup', icon: <MapPin size={16} /> },
     { path: '/customers', name: 'Customers', icon: <UsersIcon size={16} /> },
-    { path: '/picklist', name: 'Picklist', icon: <ClipboardList size={16} /> },
+    { path: '/transfer-request', name: 'Transfer Request', icon: <ClipboardList size={16} /> },
   ];
 
   const menuItems = user?.menu_access && Array.isArray(user.menu_access) && user.menu_access.length > 0 
@@ -375,7 +375,7 @@ function Layout() {
             <Route path="/reports" element={<Reports />} />
             <Route path="/locations" element={<Locations />} />
             <Route path="/customers" element={<Customers />} />
-            <Route path="/picklist" element={<Picklist />} />
+            <Route path="/transfer-request" element={<TransferRequest />} />
             <Route path="/bins" element={<Bins />} />
             <Route path="/notifications" element={<Notifications />} />
             {user?.role === 'superadmin' && (
