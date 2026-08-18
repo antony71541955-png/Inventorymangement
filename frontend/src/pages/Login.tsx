@@ -56,7 +56,7 @@ export default function Login() {
         {/* Text headers */}
         <div className="text-center mt-6 mb-8 space-y-1">
           <h1 className="text-xl sm:text-2xl font-bold tracking-wide text-white uppercase" style={{ fontFamily: 'Arial, sans-serif' }}>
-            Grens International
+            Greens International
           </h1>
           <p className="text-zinc-200 italic text-lg" style={{ fontFamily: 'Georgia, serif' }}>
             It's all about Baking...
