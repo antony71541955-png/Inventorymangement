@@ -182,6 +182,32 @@ def init_db():
         )
     ''')
     
+    # 12. Dispatch Picklists Table (The new Picklist feature)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS dispatch_picklists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            status TEXT DEFAULT 'Created',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+        )
+    ''')
+
+    # 13. Dispatch Picklist Items Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS dispatch_picklist_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dispatch_picklist_id INTEGER NOT NULL,
+            part_number TEXT NOT NULL,
+            warehouse TEXT NOT NULL,
+            bin_location TEXT,
+            batch_no TEXT,
+            expiry TEXT,
+            quantity INTEGER NOT NULL,
+            FOREIGN KEY(dispatch_picklist_id) REFERENCES dispatch_picklists(id) ON DELETE CASCADE
+        )
+    ''')
+    
     # Add indices for fast pagination over 25,000+ items
     c.execute("CREATE INDEX IF NOT EXISTS idx_items_part_number ON items(part_number)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_stock_balances_part_number ON stock_balances(part_number)")
@@ -2496,15 +2522,115 @@ def picklist_item_decision(picklist_id, item_id):
     c.execute("SELECT transfer_status FROM picklist_items WHERE picklist_id = ?", (picklist_id,))
     item_statuses = [row['transfer_status'] for row in c.fetchall()]
     
-    overall_status = 'Pending Transfer Decision'
-    if all(s != 'Pending' for s in item_statuses):
-        overall_status = 'Transfer Decisions Made'
-        
-    c.execute("UPDATE picklists SET transfer_status = ? WHERE id = ?", (overall_status, picklist_id))
+    pending_count = sum(1 for s in item_statuses if not s or s == 'Pending')
+    rejected_count = sum(1 for s in item_statuses if s == 'Not Possible')
+    
+    if pending_count > 0:
+        overall_transfer_status = 'Pending Transfer Decision'
+        overall_status = 'Pending'
+    else:
+        if rejected_count > 0:
+            overall_transfer_status = 'Transfer Not Possible'
+            overall_status = 'Rejected'
+        else:
+            overall_transfer_status = 'Transfer Decisions Made'
+            overall_status = 'Approved'
+            
+    c.execute("UPDATE picklists SET transfer_status = ?, status = ? WHERE id = ?", (overall_transfer_status, overall_status, picklist_id))
     
     conn.commit()
     conn.close()
-    return jsonify({"success": True, "status": status, "overall_status": overall_status}), 200
+    return jsonify({"success": True, "status": status, "overall_status": overall_transfer_status, "picklist_status": overall_status}), 200
+
+# ==========================================
+# Dispatch Picklists (New Picklist Feature)
+# ==========================================
+
+@app.route('/api/dispatch_picklists', methods=['GET'])
+@login_required
+def get_dispatch_picklists():
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute('''
+        SELECT dp.id, dp.customer_id, dp.status, dp.created_at, c.customer_name 
+        FROM dispatch_picklists dp
+        JOIN customers c ON dp.customer_id = c.id
+        ORDER BY dp.created_at DESC
+    ''')
+    picklists = [dict(row) for row in c.fetchall()]
+    conn.close()
+    return jsonify(picklists), 200
+
+@app.route('/api/dispatch_picklists', methods=['POST'])
+@login_required
+def create_dispatch_picklist():
+    data = request.json
+    customer_id = data.get('customer_id')
+    items = data.get('items', [])
+    
+    if not customer_id or not items:
+        return jsonify({"error": "Customer and items are required"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        c.execute("INSERT INTO dispatch_picklists (customer_id, status) VALUES (?, 'Created')", (customer_id,))
+        picklist_id = c.lastrowid
+        
+        for item in items:
+            c.execute('''
+                INSERT INTO dispatch_picklist_items 
+                (dispatch_picklist_id, part_number, warehouse, bin_location, batch_no, expiry, quantity)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                picklist_id, 
+                item.get('part_number'), 
+                item.get('warehouse', 'DIS'), 
+                item.get('bin_location', ''),
+                item.get('batch_no', ''),
+                item.get('expiry', ''),
+                item.get('quantity', 0)
+            ))
+            
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({"error": str(e)}), 500
+        
+    conn.close()
+    return jsonify({"success": True, "picklist_id": picklist_id}), 201
+
+@app.route('/api/dispatch_picklists/<int:id>', methods=['GET'])
+@login_required
+def get_dispatch_picklist(id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    c.execute('''
+        SELECT dp.id, dp.customer_id, dp.status, dp.created_at, c.customer_name 
+        FROM dispatch_picklists dp
+        JOIN customers c ON dp.customer_id = c.id
+        WHERE dp.id = ?
+    ''', (id,))
+    picklist = c.fetchone()
+    
+    if not picklist:
+        conn.close()
+        return jsonify({"error": "Picklist not found"}), 404
+        
+    c.execute('''
+        SELECT pi.id, pi.part_number, pi.warehouse, pi.bin_location, pi.batch_no, pi.expiry, pi.quantity, i.item_name
+        FROM dispatch_picklist_items pi
+        JOIN items i ON pi.part_number = i.part_number
+        WHERE pi.dispatch_picklist_id = ?
+    ''', (id,))
+    items = [dict(row) for row in c.fetchall()]
+    
+    conn.close()
+    result = dict(picklist)
+    result["items"] = items
+    return jsonify(result), 200
 
 # --- SERVE FRONTEND (CATCH-ALL) ---
 @app.route('/', defaults={'path': ''})

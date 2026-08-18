@@ -35,6 +35,7 @@ const AVAILABLE_MENUS = [
   { path: '/locations', name: 'Locations Setup' },
   { path: '/customers', name: 'Customers' },
   { path: '/transfer-request', name: 'Transfer Request' },
+  { path: '/picklist', name: 'Picklist' },
   { path: '/users', name: 'User Management' },
   { path: '/audit-logs', name: 'Audit Logs' },
   { path: '/notifications', name: 'Notifications' },
