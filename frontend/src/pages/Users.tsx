@@ -8,7 +8,8 @@ import {
   UserCog,
   AlertCircle,
   CheckCircle2,
-  Users as UsersIcon
+  Users as UsersIcon,
+  Edit2
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ export default function Users() {
   const [loading, setLoading] = useState(true);
   
   // Form state
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -96,46 +98,80 @@ export default function Users() {
     fetchWarehouses();
   }, []);
 
-  const handleCreateUser = async (e: React.FormEvent) => {
+  const handleSubmitUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
     setActionLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/auth/register`, {
-        method: 'POST',
+      const url = editingUserId ? `${API_URL}/api/users/${editingUserId}` : `${API_URL}/api/auth/register`;
+      const method = editingUserId ? 'PUT' : 'POST';
+      
+      const payload: any = {
+        username: username.trim().toLowerCase(),
+        full_name: fullName.trim(),
+        role,
+        warehouse_code: role === 'warehouse_admin' ? warehouseCode : undefined,
+        menu_access: menuAccess
+      };
+      
+      if (password) {
+        payload.password = password;
+      }
+
+      const response = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: username.trim().toLowerCase(),
-          password,
-          full_name: fullName.trim(),
-          role,
-          warehouse_code: role === 'warehouse_admin' ? warehouseCode : undefined,
-          menu_access: menuAccess
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'User creation failed.');
+        throw new Error(data.error || (editingUserId ? 'User update failed.' : 'User creation failed.'));
       }
 
-      setSuccess(`User "${username}" created successfully!`);
-      // Reset form
-      setFullName('');
-      setUsername('');
-      setPassword('');
-      setRole('operator');
-      setWarehouseCode('');
-      setMenuAccess(AVAILABLE_MENUS.map(m => m.path));
-      // Reload directory
+      setSuccess(`User "${username}" ${editingUserId ? 'updated' : 'created'} successfully!`);
+      cancelEdit();
       fetchUsers();
     } catch (err: any) {
-      setError(err.message || 'Something went wrong while creating the user account.');
+      setError(err.message || 'Something went wrong while processing the user account.');
     } finally {
       setActionLoading(false);
     }
+  };
+  
+  const handleEditUserClick = (usr: UserItem) => {
+    setEditingUserId(usr.id);
+    setFullName(usr.full_name);
+    setUsername(usr.username);
+    setPassword(''); // don't show password, leave blank if not changing
+    setRole(usr.role);
+    setWarehouseCode(usr.warehouse_code || '');
+    // Ensure valid JSON parsing or fallback if menu_access is stringified
+    try {
+      if (typeof usr.menu_access === 'string') {
+        setMenuAccess(JSON.parse(usr.menu_access));
+      } else if (Array.isArray(usr.menu_access)) {
+        setMenuAccess(usr.menu_access);
+      } else {
+        setMenuAccess([]);
+      }
+    } catch {
+      setMenuAccess([]);
+    }
+    setError(null);
+    setSuccess(null);
+  };
+  
+  const cancelEdit = () => {
+    setEditingUserId(null);
+    setFullName('');
+    setUsername('');
+    setPassword('');
+    setRole('operator');
+    setWarehouseCode('');
+    setMenuAccess(AVAILABLE_MENUS.map(m => m.path));
   };
 
   const executeDeleteUser = async (userId: number, uName: string) => {
@@ -190,13 +226,19 @@ export default function Users() {
           <Card className="bg-white border border-zinc-200/85 rounded-xl shadow-sm">
             <CardHeader>
               <CardTitle className="text-md font-bold text-zinc-900 flex items-center gap-2">
-                <UserPlus size={16} className="text-indigo-600" />
-                <span>Create User Credentials</span>
+                {editingUserId ? (
+                  <Edit2 size={16} className="text-indigo-600" />
+                ) : (
+                  <UserPlus size={16} className="text-indigo-600" />
+                )}
+                <span>{editingUserId ? 'Edit User Credentials' : 'Create User Credentials'}</span>
               </CardTitle>
-              <CardDescription className="text-xs text-zinc-500 font-medium">Add authorization levels for warehouse operator profiles.</CardDescription>
+              <CardDescription className="text-xs text-zinc-500 font-medium">
+                {editingUserId ? 'Update the authorization and profile of the selected user.' : 'Add authorization levels for warehouse operator profiles.'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleCreateUser} className="space-y-4">
+              <form onSubmit={handleSubmitUser} className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Full Name</label>
                   <Input
@@ -228,11 +270,11 @@ export default function Users() {
                   <Input
                     id="user-password-input"
                     type="password"
-                    placeholder="••••••••"
+                    placeholder={editingUserId ? "•••••••• (Leave blank to keep current)" : "••••••••"}
                     className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-indigo-600"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    required
+                    required={!editingUserId}
                   />
                 </div>
 
@@ -291,14 +333,28 @@ export default function Users() {
                   </div>
                 </div>
 
-                <Button 
-                  id="create-user-btn"
-                  type="submit" 
-                  className="w-full bg-[#0e121e] hover:bg-zinc-900 text-white font-semibold shadow-sm text-xs py-2 mt-2 h-10" 
-                  disabled={actionLoading}
-                >
-                  {actionLoading ? 'Creating User Profile...' : 'Create WMS Credentials'}
-                </Button>
+                <div className="flex gap-2 mt-2">
+                  <Button 
+                    id="create-user-btn"
+                    type="submit" 
+                    className="flex-1 bg-[#0e121e] hover:bg-zinc-900 text-white font-semibold shadow-sm text-xs py-2 h-10" 
+                    disabled={actionLoading}
+                  >
+                    {actionLoading ? (editingUserId ? 'Updating...' : 'Creating...') : (editingUserId ? 'Update Profile' : 'Create WMS Credentials')}
+                  </Button>
+                  
+                  {editingUserId && (
+                    <Button 
+                      type="button"
+                      variant="outline"
+                      onClick={cancelEdit}
+                      className="border-zinc-200 hover:bg-zinc-50 text-xs font-semibold h-10 px-4 rounded-lg"
+                      disabled={actionLoading}
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </div>
               </form>
             </CardContent>
           </Card>
@@ -365,15 +421,26 @@ export default function Users() {
                             </div>
                           </TableCell>
                           <TableCell className="text-center">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-zinc-400 hover:text-red-600 hover:bg-red-50/50 rounded-full h-8 w-8"
-                              disabled={usr.username === user?.username}
-                              onClick={() => setDeleteConfirmUser(usr)}
-                            >
-                              <Trash2 size={14} />
-                            </Button>
+                            <div className="flex items-center justify-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50/50 rounded-full h-8 w-8"
+                                disabled={usr.username === user?.username}
+                                onClick={() => handleEditUserClick(usr)}
+                              >
+                                <Edit2 size={14} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-zinc-400 hover:text-red-600 hover:bg-red-50/50 rounded-full h-8 w-8"
+                                disabled={usr.username === user?.username}
+                                onClick={() => setDeleteConfirmUser(usr)}
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))

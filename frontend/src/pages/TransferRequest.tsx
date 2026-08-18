@@ -148,7 +148,17 @@ export default function TransferRequest() {
       });
       if (res.ok) {
         const data = await res.json();
-        return data.locations || [];
+        const rawLocations = data.locations || [];
+        const aggregated = new Map<string, InventoryLocation>();
+        for (const loc of rawLocations) {
+          const key = `${loc.warehouse}|${loc.bin_location}`;
+          if (aggregated.has(key)) {
+             aggregated.get(key)!.quantity += loc.quantity;
+          } else {
+             aggregated.set(key, { ...loc });
+          }
+        }
+        return Array.from(aggregated.values());
       }
     } catch (err) {
       console.error("Failed to fetch locations", err);
@@ -260,6 +270,23 @@ export default function TransferRequest() {
         const newSelectedInventories: InventoryItem[] = [];
         for (const [part_number, itemData] of Array.from(itemsMap.entries())) {
           const locations = await fetchInventoryLocations(part_number);
+          
+          // Ensure that any requested location in data.items is present in locations, even if current stock is 0
+          for (const pi of data.items) {
+             if (pi.part_number === part_number) {
+                const locExists = locations.find(l => l.warehouse === pi.warehouse && l.bin_location === pi.bin_location);
+                if (!locExists) {
+                   locations.push({
+                      warehouse: pi.warehouse,
+                      bin_location: pi.bin_location,
+                      quantity: 0,
+                      batch_no: '',
+                      expiry: ''
+                   });
+                }
+             }
+          }
+          
           newSelectedInventories.push({
             ...itemData,
             locations

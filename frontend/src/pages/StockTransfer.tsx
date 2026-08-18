@@ -225,25 +225,39 @@ export default function StockTransfer() {
   };
 
   // Fetch all stock rows to populate the transfer pool
-  const fetchPool = async () => {
+  const fetchPool = async (wh: string) => {
     setLoadingItems(true);
     try {
-      const res = await fetch(`${API_URL}/api/inventory?limit=1000&sort_by=part_number`);
+      const url = wh 
+        ? `${API_URL}/api/inventory?limit=5000&sort_by=part_number&warehouse=${encodeURIComponent(wh)}`
+        : `${API_URL}/api/inventory?limit=5000&sort_by=part_number`;
+      const res = await fetch(url);
       const data = await res.json();
       
       const flattened: LocationItem[] = [];
       if (data.items) {
         data.items.forEach((item: any) => {
+          // Aggregate locations by warehouse and bin to avoid duplicate rows for different batches
+          const aggregated = new Map<string, any>();
           item.locations.forEach((loc: any) => {
-            if (loc.quantity > 0) {
-              flattened.push({
-                part_number: item.part_number,
-                item_name: item.item_name,
-                warehouse: loc.warehouse,
-                bin_location: loc.bin_location,
-                quantity: loc.quantity
-              });
+            if (loc.quantity > 0 && (!wh || loc.warehouse === wh)) {
+              const key = `${loc.warehouse}|${loc.bin_location}`;
+              if (aggregated.has(key)) {
+                aggregated.get(key)!.quantity += loc.quantity;
+              } else {
+                aggregated.set(key, { ...loc });
+              }
             }
+          });
+          
+          aggregated.forEach((loc) => {
+            flattened.push({
+              part_number: item.part_number,
+              item_name: item.item_name,
+              warehouse: loc.warehouse,
+              bin_location: loc.bin_location,
+              quantity: loc.quantity
+            });
           });
         });
       }
@@ -339,10 +353,13 @@ export default function StockTransfer() {
   }, [itemsPool]);
 
   useEffect(() => {
-    fetchPool();
     fetchHistory();
     fetchLocations();
   }, []);
+
+  useEffect(() => {
+    fetchPool(sourceWarehouse);
+  }, [sourceWarehouse]);
 
   useEffect(() => {
     if (user?.role === 'warehouse_admin' && user?.warehouse_code) {
@@ -550,7 +567,7 @@ export default function StockTransfer() {
       setDestinations([{ sourceItemIndex: '', toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }]);
 
       // Refresh data
-      fetchPool();
+      fetchPool(sourceWarehouse);
       fetchHistory();
     } catch (err: any) {
       setError(err.message || 'Transfer failed');

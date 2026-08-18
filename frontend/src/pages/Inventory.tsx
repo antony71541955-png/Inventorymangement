@@ -59,6 +59,7 @@ export default function Inventory() {
   const [page, setPage] = useState(1);
   const [limit] = useState(10);
   const [search, setSearch] = useState('');
+  const [warehouseFilter, setWarehouseFilter] = useState('');
   const [sortBy, setSortBy] = useState('part_number');
   const [sortDir, setSortDir] = useState('ASC');
   
@@ -248,6 +249,9 @@ export default function Inventory() {
       url.searchParams.append('page', page.toString());
       url.searchParams.append('limit', limit.toString());
       url.searchParams.append('search', search);
+      if (warehouseFilter) {
+        url.searchParams.append('warehouse', warehouseFilter);
+      }
       url.searchParams.append('sort_by', sortBy);
       url.searchParams.append('sort_dir', sortDir);
       
@@ -303,7 +307,7 @@ export default function Inventory() {
   useEffect(() => {
     fetchInventory();
     fetchLocations();
-  }, [page, search, sortBy, sortDir]);
+  }, [page, search, warehouseFilter, sortBy, sortDir]);
 
   // Set default selected item once items are loaded
   useEffect(() => {
@@ -544,12 +548,28 @@ export default function Inventory() {
               <ChevronLeft size={12} className="mr-1" /> Show Product Info
             </Button>
           )}
+          {/* Warehouse Filter */}
+          <div className="relative w-48">
+            <select
+              className="w-full h-9 bg-white border border-zinc-200 text-xs text-zinc-800 rounded-md focus-visible:ring-zinc-900 px-2 outline-none cursor-pointer"
+              value={warehouseFilter}
+              onChange={(e) => {
+                setWarehouseFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">All Warehouses</option>
+              {Object.keys(locations).map(wh => (
+                <option key={wh} value={wh}>{wh}</option>
+              ))}
+            </select>
+          </div>
           {/* Compact Table Search Input */}
           <div className="relative w-48">
-            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-550" />
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-550" />
             <Input
               type="text"
-              className="pl-8 h-7.5 bg-white border-zinc-200 text-xs text-zinc-800 rounded-md focus-visible:ring-zinc-900"
+              className="pl-8 h-9 bg-white border-zinc-200 text-xs text-zinc-800 rounded-md focus-visible:ring-zinc-900"
               placeholder="Search items"
               value={search}
               onChange={handleSearchChange}

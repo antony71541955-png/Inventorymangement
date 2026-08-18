@@ -580,16 +580,46 @@ def update_user(user_id):
     
     data = request.json
     import json
-    menu_access = json.dumps(data.get("menu_access")) if data.get("menu_access") else None
-    role = data.get("role")
     
+    full_name = data.get("full_name", "").strip()
+    username = data.get("username", "").strip().lower()
+    role = data.get("role", "operator").strip()
+    warehouse_code = data.get("warehouse_code", "").strip() if role == "warehouse_admin" else None
+    menu_access = json.dumps(data.get("menu_access")) if data.get("menu_access") else None
+    password = data.get("password")
+    
+    if not username or not full_name:
+        return jsonify({"error": "Username and full name are required."}), 400
+        
     conn = get_db_connection()
     c = conn.cursor()
     
     try:
-        # We only update menu_access for now (can expand later)
-        c.execute("UPDATE users SET menu_access = ? WHERE id = ?", (menu_access, user_id))
+        if password:
+            hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            c.execute('''
+                UPDATE users 
+                SET full_name = ?, username = ?, role = ?, warehouse_code = ?, menu_access = ?, password_hash = ?
+                WHERE id = ?
+            ''', (full_name, username, role, warehouse_code, menu_access, hashed, user_id))
+        else:
+            c.execute('''
+                UPDATE users 
+                SET full_name = ?, username = ?, role = ?, warehouse_code = ?, menu_access = ?
+                WHERE id = ?
+            ''', (full_name, username, role, warehouse_code, menu_access, user_id))
+            
+        # Log user update
+        voucher = generate_voucher_number("USR-EDT")
+        c.execute('''
+            INSERT INTO stock_journal (voucher_number, transaction_type, part_number, quantity, user_name, remarks)
+            VALUES (?, 'UPDATE', 'N/A', 0, ?, ?)
+        ''', (voucher, request.user["full_name"], f"Updated user '{username}' (ID: {user_id})"))
+        
         conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({"error": "Username already exists."}), 409
     except Exception as e:
         conn.close()
         return jsonify({"error": f"Failed to update user: {str(e)}"}), 500

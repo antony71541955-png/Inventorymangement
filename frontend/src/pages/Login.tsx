@@ -1,10 +1,6 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth, API_URL } from '../App';
-import { User, Lock, Layers } from 'lucide-react';
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -42,63 +38,73 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950 p-6">
-      <Card className="w-full max-w-[420px] bg-zinc-900/50 border-zinc-800/80 backdrop-blur-md shadow-2xl">
-        <CardHeader className="text-center pb-6">
-          <div className="mx-auto flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 mb-4 shadow-sm">
-            <Layers size={26} />
+    <div className="min-h-screen flex items-center justify-center bg-[#133e2c] p-6 font-sans relative">
+      {/* Decorative gradient overlay to match image depth */}
+      <div className="absolute inset-0 bg-gradient-to-br from-[#1b4332] to-[#0e3725] pointer-events-none opacity-80" />
+      
+      <div className="w-full max-w-[400px] bg-[#103022] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] rounded-2xl p-8 relative mt-12 z-10 border border-white/5">
+        
+        {/* Holly Berry Image */}
+        <div className="absolute -top-14 left-1/2 transform -translate-x-1/2">
+           <img 
+              src="/holly_berry.png" 
+              alt="Holly Berry Decoration" 
+              className="w-24 h-24 object-contain drop-shadow-md"
+           />
+        </div>
+
+        {/* Text headers */}
+        <div className="text-center mt-6 mb-8 space-y-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-wide text-white uppercase" style={{ fontFamily: 'Arial, sans-serif' }}>
+            Grens International
+          </h1>
+          <p className="text-zinc-200 italic text-lg" style={{ fontFamily: 'Georgia, serif' }}>
+            It's all about Baking...
+          </p>
+        </div>
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-lg mb-4 text-center">
+            {error}
           </div>
-          <CardTitle className="text-2xl font-bold tracking-tight text-zinc-100">Apex WMS</CardTitle>
-          <CardDescription className="text-zinc-400 text-sm">Warehouse & Inventory Management</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3.5 rounded-lg mb-5 flex items-start gap-2.5">
-              <span>{error}</span>
-            </div>
-          )}
+        )}
 
-          <form onSubmit={handleSubmit} className="space-y-5" autoComplete="off">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Username</label>
-              <div className="relative">
-                <User size={16} className="absolute left-3.5 top-3 text-zinc-500" />
-                <Input
-                  type="text"
-                  autoComplete="off"
-                  className="pl-10 bg-zinc-950 border-zinc-800 text-zinc-200 focus-visible:ring-indigo-500"
-                  placeholder="Enter username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+           <input 
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoComplete="off"
+              className="w-full bg-white text-zinc-900 border-0 rounded-md px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#8f1a2e] transition-all"
+           />
+           <input 
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="off"
+              className="w-full bg-white text-zinc-900 border-0 rounded-md px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#8f1a2e] transition-all"
+           />
 
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Password</label>
-              <div className="relative">
-                <Lock size={16} className="absolute left-3.5 top-3 text-zinc-500" />
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  className="pl-10 bg-zinc-950 border-zinc-800 text-zinc-200 focus-visible:ring-indigo-500"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
-            <Button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-semibold shadow-lg shadow-indigo-600/15" disabled={loading}>
-              {loading ? 'Authenticating...' : 'Sign In'}
-            </Button>
-          </form>
-
-
-        </CardContent>
-      </Card>
+           <button 
+              type="submit" 
+              disabled={loading}
+              className="w-full bg-[#9e162d] hover:bg-[#861225] text-white font-bold tracking-wider py-2.5 rounded-md uppercase transition-colors mt-2 text-sm"
+           >
+             {loading ? 'Authenticating...' : 'Sign In'}
+           </button>
+        </form>
+        
+        {/* Links */}
+        <div className="flex justify-between items-center mt-6 text-xs text-zinc-300 font-medium px-1">
+           <button type="button" className="hover:text-white transition-colors cursor-pointer">Forgot Password?</button>
+           <button type="button" className="hover:text-white transition-colors cursor-pointer">Create Account</button>
+        </div>
+      </div>
     </div>
   );
 }
