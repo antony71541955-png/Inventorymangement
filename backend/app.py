@@ -2119,9 +2119,12 @@ def create_picklist():
         picklist_id = c.lastrowid
         
         # 2. Process each item and validate stock
+        warehouses_involved = set()
         for item in items:
             part_number = item.get('part_number')
             warehouse = item.get('warehouse')
+            if warehouse:
+                warehouses_involved.add(warehouse)
             bin_location = item.get('bin_location')
             required_quantity = item.get('required_quantity', 0)
             
@@ -2167,11 +2170,15 @@ def create_picklist():
             # Currently leaving stock as is, just tracking the picklist.
             
             
-        # Create a notification for the Warehouse Admin
-        c.execute('''
-            INSERT INTO notifications (target_role, title, message, related_entity_type, related_entity_id)
-            VALUES (?, ?, ?, ?, ?)
-        ''', ('warehouse_admin', 'New Picklist Transfer Request', f'Picklist #{picklist_id} requires stock transfer approval.', 'picklist', picklist_id))
+        # Create notifications for the Warehouse Admins involved
+        for wh in warehouses_involved:
+            c.execute("SELECT id FROM users WHERE role = 'warehouse_admin' AND warehouse_code = ?", (wh,))
+            admins = c.fetchall()
+            for admin in admins:
+                c.execute('''
+                    INSERT INTO notifications (target_user_id, title, message, related_entity_type, related_entity_id)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (admin['id'], 'New Transfer Request', f'Transfer Request #{picklist_id} requires stock transfer approval for warehouse {wh}.', 'picklist', picklist_id))
             
         c.execute("COMMIT")
         conn.commit()
@@ -2190,12 +2197,37 @@ def create_picklist():
 def get_picklists():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('''
-        SELECT p.id, p.customer_id, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
-        FROM picklists p
-        JOIN customers c ON p.customer_id = c.id
-        ORDER BY p.created_at DESC
-    ''')
+    
+    # Get current user to determine role and warehouse filtering
+    auth_header = request.headers.get('Authorization')
+    token = auth_header.split(" ")[1] if auth_header else ""
+    c.execute("SELECT user_id FROM sessions WHERE token = ?", (token,))
+    session = c.fetchone()
+    
+    if not session:
+        conn.close()
+        return jsonify({"error": "Invalid session"}), 401
+        
+    c.execute("SELECT role, warehouse_code FROM users WHERE id = ?", (session['user_id'],))
+    user = c.fetchone()
+    
+    if user and user['role'] == 'warehouse_admin':
+        c.execute('''
+            SELECT DISTINCT p.id, p.customer_id, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
+            FROM picklists p
+            JOIN customers c ON p.customer_id = c.id
+            JOIN picklist_items pi ON p.id = pi.picklist_id
+            WHERE pi.warehouse = ?
+            ORDER BY p.created_at DESC
+        ''', (user['warehouse_code'],))
+    else:
+        c.execute('''
+            SELECT p.id, p.customer_id, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
+            FROM picklists p
+            JOIN customers c ON p.customer_id = c.id
+            ORDER BY p.created_at DESC
+        ''')
+        
     picklists = [dict(row) for row in c.fetchall()]
     conn.close()
     return jsonify(picklists), 200
@@ -2219,15 +2251,36 @@ def get_picklist(id):
         conn.close()
         return jsonify({"error": "Picklist not found"}), 404
         
-    # Get items
-    c.execute('''
-        SELECT pi.id as item_id, pi.part_number, pi.warehouse, pi.bin_location, pi.required_quantity,
-               pi.transfer_status, pi.transfer_rejection_reason, pi.actual_warehouse, pi.actual_bin_location,
-               i.item_name
-        FROM picklist_items pi
-        JOIN items i ON pi.part_number = i.part_number
-        WHERE pi.picklist_id = ?
-    ''', (id,))
+    # Get current user to determine role and warehouse filtering for items
+    auth_header = request.headers.get('Authorization')
+    token = auth_header.split(" ")[1] if auth_header else ""
+    c.execute("SELECT user_id FROM sessions WHERE token = ?", (token,))
+    session = c.fetchone()
+    
+    user = None
+    if session:
+        c.execute("SELECT role, warehouse_code FROM users WHERE id = ?", (session['user_id'],))
+        user = c.fetchone()
+        
+    if user and user['role'] == 'warehouse_admin':
+        c.execute('''
+            SELECT pi.id as item_id, pi.part_number, pi.warehouse, pi.bin_location, pi.required_quantity,
+                   pi.transfer_status, pi.transfer_rejection_reason, pi.actual_warehouse, pi.actual_bin_location,
+                   i.item_name
+            FROM picklist_items pi
+            JOIN items i ON pi.part_number = i.part_number
+            WHERE pi.picklist_id = ? AND pi.warehouse = ?
+        ''', (id, user['warehouse_code']))
+    else:
+        c.execute('''
+            SELECT pi.id as item_id, pi.part_number, pi.warehouse, pi.bin_location, pi.required_quantity,
+                   pi.transfer_status, pi.transfer_rejection_reason, pi.actual_warehouse, pi.actual_bin_location,
+                   i.item_name
+            FROM picklist_items pi
+            JOIN items i ON pi.part_number = i.part_number
+            WHERE pi.picklist_id = ?
+        ''', (id,))
+        
     items = [dict(row) for row in c.fetchall()]
     
     conn.close()

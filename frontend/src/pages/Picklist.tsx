@@ -277,7 +277,7 @@ export default function Picklist() {
   };
 
   const handleDeletePicklist = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this picklist?")) return;
+    if (!confirm("Are you sure you want to delete this transfer request?")) return;
     
     try {
       const res = await fetch(`${API_URL}/api/picklists/${id}`, {
@@ -288,10 +288,10 @@ export default function Picklist() {
         fetchPicklists();
       } else {
         const data = await res.json();
-        alert(data.error || "Failed to delete picklist");
+        alert(data.error || "Failed to delete transfer request");
       }
     } catch (err) {
-      alert("Failed to delete picklist");
+      alert("Failed to delete transfer request");
     }
   };
 
@@ -349,7 +349,7 @@ export default function Picklist() {
         throw new Error(data.error || "Failed to save picklist");
       }
       
-      setSubmitSuccess(editingPicklistId ? "Picklist updated successfully!" : "Picklist created successfully!");
+      setSubmitSuccess(editingPicklistId ? "Transfer Request updated successfully!" : "Transfer Request created successfully!");
       if (editingPicklistId) {
          setTimeout(() => {
            setActiveTab('MANAGE');
@@ -386,7 +386,7 @@ export default function Picklist() {
         throw new Error(data.error || "Failed to update status");
       }
       
-      setSubmitSuccess(`Picklist ${status.toLowerCase()} successfully!`);
+      setSubmitSuccess(`Transfer Request ${status.toLowerCase()} successfully!`);
       setEditingPicklistOverallStatus(status);
     } catch (err: any) {
       setSubmitError(err.message);
@@ -399,8 +399,8 @@ export default function Picklist() {
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Picklists</h1>
-          <p className="text-sm text-zinc-500 mt-1">Manage and create picklists for customers.</p>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Transfer Requests</h1>
+          <p className="text-sm text-zinc-500 mt-1">Manage and create transfer requests for customers.</p>
         </div>
       </div>
 
@@ -411,7 +411,7 @@ export default function Picklist() {
             activeTab === 'CREATE' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
           }`}
         >
-          {editingPicklistId ? 'Edit Picklist' : 'Create Picklist'}
+          {editingPicklistId ? 'Edit Transfer Request' : 'Create Transfer Request'}
         </button>
         <button
           onClick={() => { setActiveTab('MANAGE'); resetForm(); }}
@@ -419,7 +419,7 @@ export default function Picklist() {
             activeTab === 'MANAGE' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
           }`}
         >
-          Manage Picklists
+          Manage Transfer Requests
         </button>
       </div>
 
@@ -440,7 +440,7 @@ export default function Picklist() {
               <tbody>
                 {loadingPicklists ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-zinc-500">Loading picklists...</td>
+                    <td colSpan={6} className="px-6 py-8 text-center text-zinc-500">Loading transfer requests...</td>
                   </tr>
                 ) : picklists.length > 0 ? (
                   picklists.map(pl => (
@@ -494,7 +494,7 @@ export default function Picklist() {
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-zinc-500 flex flex-col items-center justify-center">
                       <Package size={48} className="text-zinc-300 mb-3" />
-                      <p>No picklists found.</p>
+                      <p>No transfer requests found.</p>
                     </td>
                   </tr>
                 )}
@@ -509,7 +509,7 @@ export default function Picklist() {
           <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
             <div className="flex flex-col gap-1">
               <h2 className="text-lg font-semibold text-zinc-800">
-                {editingPicklistId ? `Editing Picklist #${editingPicklistId}` : '1. Select Customer'}
+                {editingPicklistId ? `Editing Transfer Request #${editingPicklistId}` : '1. Select Customer'}
               </h2>
               {editingPicklistTransferStatus && (
                 <div className="flex items-center gap-2">
@@ -771,14 +771,14 @@ export default function Picklist() {
                     disabled={isSubmitting}
                     className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors"
                   >
-                    Approve Picklist
+                    Approve Transfer Request
                   </button>
                   <button 
                     onClick={() => handleUpdateOverallStatus('Rejected')}
                     disabled={isSubmitting}
                     className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors"
                   >
-                    Reject Picklist
+                    Reject Transfer Request
                   </button>
                 </div>
               )}
@@ -795,7 +795,7 @@ export default function Picklist() {
                   disabled={isSubmitting || !selectedCustomer || selectedInventories.length === 0}
                   className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium shadow-sm transition-colors flex items-center gap-2"
                 >
-                  {isSubmitting ? 'Saving...' : (editingPicklistId ? 'Save Changes' : 'Submit Picklist')}
+                  {isSubmitting ? 'Saving...' : (editingPicklistId ? 'Save Changes' : 'Submit Transfer Request')}
                 </button>
               )}
             </div>
