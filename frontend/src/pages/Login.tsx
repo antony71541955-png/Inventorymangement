@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, API_URL } from '../App';
+import { Button } from "@/components/ui/button";
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -8,8 +9,14 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   
-  const { login } = useAuth();
+  const { login, token } = useAuth();
   const navigate = useNavigate();
+
+  React.useEffect(() => {
+    if (token) {
+      navigate('/');
+    }
+  }, [token, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,13 +97,13 @@ export default function Login() {
               className="w-full bg-white text-zinc-900 border-0 rounded-md px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#8f1a2e] transition-all"
            />
 
-           <button 
+           <Button 
               type="submit" 
               disabled={loading}
-              className="w-full bg-[#9e162d] hover:bg-[#861225] text-white font-bold tracking-wider py-2.5 rounded-md uppercase transition-colors mt-2 text-sm"
+              className="w-full mt-2"
            >
              {loading ? 'Authenticating...' : 'Sign In'}
-           </button>
+           </Button>
         </form>
         
         {/* Links */}

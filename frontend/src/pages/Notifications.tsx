@@ -328,7 +328,7 @@ export default function Notifications() {
                         Requested Items
                       </h3>
                       {picklistData.items.some(i => i.transfer_status === 'Possible') && (
-                        <Button onClick={proceedToStockTransfer} size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                        <Button onClick={proceedToStockTransfer}>
                           Proceed to Stock Transfer
                         </Button>
                       )}
@@ -386,18 +386,16 @@ export default function Notifications() {
                                 <td className="px-4 py-3 text-right">
                                   <div className="flex justify-end gap-2">
                                     <Button 
-                                      size="sm"
+                                      size="xs"
                                       variant="outline"
-                                      className="h-7 text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
                                       onClick={() => handleOpenDecision(item, 'possible')}
                                       disabled={decisionItemId === item.item_id}
                                     >
                                       <CheckCircle size={14} className="mr-1" /> Yes
                                     </Button>
                                     <Button 
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 text-xs border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                                      size="xs"
+                                      variant="destructive"
                                       onClick={() => handleOpenDecision(item, 'not_possible')}
                                       disabled={decisionItemId === item.item_id}
                                     >
@@ -448,10 +446,10 @@ export default function Notifications() {
                                         )}
                                       </div>
                                       <div className="flex items-end gap-2 self-end">
-                                        <Button size="sm" variant="outline" onClick={resetDecisionState} className="h-9">
+                                        <Button variant="outline" onClick={resetDecisionState}>
                                           Cancel
                                         </Button>
-                                        <Button size="sm" onClick={submitItemDecision} disabled={submittingDecision} className="h-9 bg-blue-600 hover:bg-blue-700 text-white">
+                                        <Button onClick={submitItemDecision} disabled={submittingDecision}>
                                           {submittingDecision ? 'Saving...' : 'Save Decision'}
                                         </Button>
                                       </div>

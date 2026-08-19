@@ -307,7 +307,7 @@ export default function Customers() {
                 <Button 
                   type="submit" 
                   disabled={actionLoading} 
-                  className="w-full h-9 mt-2 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white"
+                  className="w-full mt-2"
                 >
                   {actionLoading ? 'Creating...' : 'Create Customer'}
                 </Button>
@@ -343,7 +343,7 @@ export default function Customers() {
                   type="button" 
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploading}
-                  className="w-full h-9 text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-white flex items-center gap-2"
+                  className="w-full"
                 >
                   {uploading ? (
                     'Uploading...'
@@ -417,9 +417,8 @@ export default function Customers() {
                         <TableCell className="text-right py-3">
                           <Button 
                             variant="ghost" 
-                            size="icon" 
+                            size="icon-xs" 
                             onClick={() => openEditDialog(customer)}
-                            className="h-7 w-7 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50"
                           >
                             <Pencil size={14} />
                           </Button>
@@ -492,14 +491,12 @@ export default function Customers() {
                 type="button" 
                 variant="outline" 
                 onClick={() => setIsEditDialogOpen(false)}
-                className="h-9 text-xs font-medium"
               >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
                 disabled={actionLoading} 
-                className="h-9 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white"
               >
                 {actionLoading ? 'Saving...' : 'Save Changes'}
               </Button>

@@ -675,7 +675,7 @@ export default function StockTransfer() {
               <div className="space-y-4 border-t border-zinc-100 pt-4 mt-4">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Destination Locations</label>
-                  <Button type="button" variant="outline" size="sm" onClick={addDestination} className="h-7 text-xs bg-white text-zinc-700 hover:text-zinc-900 border-zinc-200">
+                  <Button type="button" variant="outline" size="sm" onClick={addDestination}>
                     <Plus size={14} className="mr-1" /> Add Location
                   </Button>
                 </div>
@@ -759,7 +759,7 @@ export default function StockTransfer() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full mt-2 bg-zinc-950 hover:bg-zinc-900 text-white font-semibold" disabled={posting}>
+              <Button type="submit" className="w-full mt-2" disabled={posting}>
                 <RefreshCw size={16} className={`mr-2 ${posting ? 'animate-spin' : ''}`} />
                 <span>{posting ? 'Posting Voucher...' : 'Post Transfer Journal'}</span>
               </Button>

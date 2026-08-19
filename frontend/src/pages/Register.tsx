@@ -77,7 +77,7 @@ export default function Register() {
                 <FileText size={16} className="absolute left-3.5 top-3.5 text-zinc-500" />
                 <Input
                   type="text"
-                  className="pl-10 h-11 bg-zinc-950 border-zinc-800 text-zinc-200 focus-visible:ring-indigo-500"
+                  className="pl-10 h-11 bg-zinc-950 border-zinc-800 text-zinc-200 focus-visible:ring-zinc-400"
                   placeholder="e.g. Antony Kuriyan"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -92,7 +92,7 @@ export default function Register() {
                 <User size={16} className="absolute left-3.5 top-3.5 text-zinc-500" />
                 <Input
                   type="text"
-                  className="pl-10 h-11 bg-zinc-950 border-zinc-800 text-zinc-200 focus-visible:ring-indigo-500"
+                  className="pl-10 h-11 bg-zinc-950 border-zinc-800 text-zinc-200 focus-visible:ring-zinc-400"
                   placeholder="Choose username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -107,7 +107,7 @@ export default function Register() {
                 <Lock size={16} className="absolute left-3.5 top-3.5 text-zinc-500" />
                 <Input
                   type="password"
-                  className="pl-10 h-11 bg-zinc-950 border-zinc-800 text-zinc-200 focus-visible:ring-indigo-500"
+                  className="pl-10 h-11 bg-zinc-950 border-zinc-800 text-zinc-200 focus-visible:ring-zinc-400"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -119,7 +119,7 @@ export default function Register() {
             <div className="space-y-2">
               <label className="text-xs font-bold text-zinc-400 uppercase tracking-wider">User Role</label>
               <Select value={role} onValueChange={(val) => setRole(val)}>
-                <SelectTrigger className="h-11 bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-indigo-500">
+                <SelectTrigger className="h-11 bg-zinc-950 border-zinc-800 text-zinc-200 focus:ring-zinc-400">
                   <SelectValue placeholder="Select user role" />
                 </SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-zinc-200">
@@ -129,7 +129,7 @@ export default function Register() {
               </Select>
             </div>
 
-            <Button type="submit" className="w-full mt-2 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-semibold shadow-lg shadow-indigo-600/15" disabled={loading}>
+            <Button type="submit" className="w-full mt-2" disabled={loading}>
               {loading ? 'Registering...' : 'Create Account'}
             </Button>
           </form>

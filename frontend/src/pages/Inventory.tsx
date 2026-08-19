@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, API_URL } from '../App';
+import { InfinitySpin } from 'react-loader-spinner';
 import { 
   Plus, 
   Search, 
@@ -62,6 +63,7 @@ export default function Inventory() {
   const [warehouseFilter, setWarehouseFilter] = useState('');
   const [sortBy, setSortBy] = useState('part_number');
   const [sortDir, setSortDir] = useState('ASC');
+  const [activeTab, setActiveTab] = useState('All');
   
   // Dialog state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -174,42 +176,60 @@ export default function Inventory() {
     formData.append('file', file);
     
     try {
-      await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${API_URL}/api/inventory/upload`, true);
-        
-        if (token) {
-          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        }
-        
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = Math.round((event.loaded / event.total) * 100);
-            setUploadProgress(percentComplete);
-          }
-        };
-        
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              resolve(data);
-            } catch (err) {
-              resolve(xhr.responseText);
-            }
-          } else {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              reject(new Error(data.error || 'Failed to upload spreadsheet.'));
-            } catch {
-              reject(new Error('Failed to upload spreadsheet.'));
-            }
-          }
-        };
-        
-        xhr.onerror = () => reject(new Error('Network error occurred during excel import.'));
-        xhr.send(formData);
+      const response = await fetch(`${API_URL}/api/inventory/upload`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: formData
       });
+
+      if (!response.ok) {
+        let errStr = 'Failed to upload spreadsheet.';
+        try {
+          const errData = await response.json();
+          errStr = errData.error || errStr;
+        } catch {}
+        throw new Error(errStr);
+      }
+
+      if (!response.body) {
+        throw new Error('ReadableStream not supported in this browser.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        
+        // Keep the last partial line in the buffer
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const data = JSON.parse(line);
+              if (data.progress !== undefined) {
+                setUploadProgress(data.progress);
+              }
+              if (data.error) {
+                throw new Error(data.error);
+              }
+              if (data.success) {
+                // Done successfully
+              }
+            } catch (err: any) {
+              if (err.message !== "Unexpected end of JSON input" && err.name !== "SyntaxError") {
+                throw err;
+              }
+            }
+          }
+        }
+      }
       
       alert('Bulk upload completed successfully!');
       fetchInventory();
@@ -488,7 +508,7 @@ export default function Inventory() {
           />
           <Button 
             variant="outline" 
-            className="relative overflow-hidden border-zinc-200 hover:bg-zinc-50 text-zinc-700 font-semibold text-xs h-9 rounded-md shadow-sm"
+            className="relative overflow-hidden"
             onClick={() => document.getElementById('bulk-excel-upload')?.click()}
             disabled={uploadingExcel}
           >
@@ -503,7 +523,7 @@ export default function Inventory() {
               {uploadingExcel ? `Uploading... ${uploadProgress}%` : 'Bulk Excel Upload'}
             </div>
           </Button>
-          <Button className="bg-zinc-950 hover:bg-zinc-900 text-white font-semibold text-xs h-9 rounded-md shadow-sm" onClick={handleAddClick}>
+          <Button onClick={handleAddClick}>
             <Plus className="mr-1.5 h-4 w-4" /> Add Stock Item
           </Button>
         </div>
@@ -529,23 +549,33 @@ export default function Inventory() {
 
       {/* All, Active, Draft... Categories Navigation Bar */}
       <div className="flex justify-between items-center border-b border-zinc-200/80 pb-0 mb-3">
-        <div className="flex gap-5 text-xs font-bold text-zinc-400">
-          <span className="text-zinc-900 border-b-2 border-zinc-900 pb-3 cursor-pointer">All</span>
-          <span className="hover:text-zinc-850 pb-3 cursor-pointer">Active</span>
-          <span className="hover:text-zinc-850 pb-3 cursor-pointer">Draft</span>
-          <span className="hover:text-zinc-850 pb-3 cursor-pointer">Archived</span>
-          <span className="hover:text-zinc-850 pb-3 cursor-pointer">Custom</span>
-          <span className="text-zinc-400 pb-3 cursor-pointer">+</span>
+        <div className="flex gap-5 text-xs font-bold text-zinc-400 transition-colors">
+          <span 
+            className={`pb-3 cursor-pointer ${activeTab === 'All' ? 'text-zinc-900 border-b-2 border-zinc-900' : 'hover:text-zinc-800'}`}
+            onClick={() => setActiveTab('All')}
+          >All</span>
+          <span 
+            className={`pb-3 cursor-pointer ${activeTab === 'Food' ? 'text-zinc-900 border-b-2 border-zinc-900' : 'hover:text-zinc-800'}`}
+            onClick={() => setActiveTab('Food')}
+          >Food Items</span>
+          <span 
+            className={`pb-3 cursor-pointer ${activeTab === 'Non Food' ? 'text-zinc-900 border-b-2 border-zinc-900' : 'hover:text-zinc-800'}`}
+            onClick={() => setActiveTab('Non Food')}
+          >Non-Food Items</span>
         </div>
         
         <div className="flex items-center gap-2 mb-2">
-          {isDetailsMinimized && selectedItem && (
+          {selectedItem && (
             <Button 
               variant="outline" 
-              className="h-7.5 border-zinc-200 text-zinc-700 text-xs px-2.5 rounded-md hover:bg-zinc-50"
-              onClick={() => setIsDetailsMinimized(false)}
+              size="xs"
+              onClick={() => setIsDetailsMinimized(!isDetailsMinimized)}
             >
-              <ChevronLeft size={12} className="mr-1" /> Show Product Info
+              {isDetailsMinimized ? (
+                <><ChevronLeft size={12} className="mr-1" /> Show Product Info</>
+              ) : (
+                <><ChevronRight size={12} className="mr-1" /> Hide Product Info</>
+              )}
             </Button>
           )}
           {/* Warehouse Filter */}
@@ -606,20 +636,39 @@ export default function Inventory() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loading ? (
-                    <TableRow className="border-b border-zinc-100">
-                      <TableCell colSpan={9} className="text-center py-12 text-zinc-450 text-xs">
-                        Loading database catalog...
-                      </TableCell>
-                    </TableRow>
-                  ) : items.length === 0 ? (
-                    <TableRow className="border-b border-zinc-100">
-                      <TableCell colSpan={9} className="text-center py-12 text-zinc-450 text-xs">
-                        No product allocations match.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    items.map((item) => {
+                  {(() => {
+                    const displayedItems = items.filter(item => {
+                      if (activeTab === 'All') return true;
+                      if (activeTab === 'Food') return item.item_type?.toLowerCase() === 'food';
+                      if (activeTab === 'Non Food') return item.item_type?.toLowerCase() === 'non food';
+                      return true;
+                    });
+
+                    if (loading) {
+                      return (
+                        <TableRow className="border-b border-zinc-100">
+                          <TableCell colSpan={9} className="py-12">
+                            <div className="flex flex-col items-center justify-center gap-4">
+                              <InfinitySpin width="150" color="#1F8F00" />
+                              <p className="text-zinc-500 text-sm font-semibold tracking-wide animate-pulse">
+                                Loading database catalog...
+                              </p>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+                    if (displayedItems.length === 0) {
+                      return (
+                        <TableRow className="border-b border-zinc-100">
+                          <TableCell colSpan={9} className="text-center py-12 text-zinc-450 text-xs">
+                            No product allocations match the current filter.
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+                    
+                    return displayedItems.map((item) => {
                       const uniqueLocs = getUniqueLocations(item);
                       const activeLocKey = selectedLocations[item.part_number] || (item.locations?.[0] ? `${item.locations[0].warehouse}|${item.locations[0].bin_location}` : '');
                       const [activeWh, activeBin] = activeLocKey ? activeLocKey.split('|') : ['', ''];
@@ -700,8 +749,8 @@ export default function Inventory() {
                           </TableCell>
                         </TableRow>
                       );
-                    })
-                  )}
+                    });
+                  })()}
                 </TableBody>
               </Table>
             </div>
@@ -710,8 +759,7 @@ export default function Inventory() {
             <div className="flex items-center justify-end gap-2 p-4 border-t border-zinc-100">
               <Button 
                 variant="outline" 
-                size="icon" 
-                className="w-8 h-8 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900"
+                size="icon-sm" 
                 onClick={() => setPage(p => Math.max(p - 1, 1))}
                 disabled={page === 1}
               >
@@ -722,8 +770,7 @@ export default function Inventory() {
               </span>
               <Button 
                 variant="outline" 
-                size="icon" 
-                className="w-8 h-8 border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900"
+                size="icon-sm" 
                 onClick={() => setPage(p => Math.min(p + 1, totalPages))}
                 disabled={page === totalPages}
               >
@@ -753,18 +800,10 @@ export default function Inventory() {
 
                 {/* Edit, Print, Duplicate Action Button Row */}
                 <div className="flex flex-wrap gap-1.5 pt-1">
-                  <Button onClick={handleEditClick} className="bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-semibold h-7.5 px-3 rounded-md shadow-sm">
+                  <Button onClick={handleEditClick}>
                     <Edit size={12} className="mr-1 shrink-0" /> Edit
                   </Button>
-                  <Button variant="outline" className="border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-[11px] font-semibold h-7.5 px-2.5 rounded-md">
-                    <Printer size={12} className="mr-1 shrink-0" /> Print
-                  </Button>
-                  <Button variant="outline" className="border-zinc-200 hover:bg-zinc-50 text-zinc-700 text-[11px] font-semibold h-7.5 px-2.5 rounded-md">
-                    <Copy size={12} className="mr-1 shrink-0" /> Duplicate
-                  </Button>
-                  <Button variant="outline" size="icon" className="border-zinc-200 hover:bg-zinc-50 w-7.5 h-7.5 rounded-md">
-                    <MoreHorizontal size={14} className="text-zinc-650" />
-                  </Button>
+
                 </div>
               </div>
 
@@ -857,83 +896,7 @@ export default function Inventory() {
                 </div>
               </div>
 
-              {/* Sales Statistics SVG Chart Component (Matching Image styling) */}
-              <div className="space-y-3 pt-4 border-t border-zinc-150">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-zinc-800">Sales statistics</span>
-                  <div className="flex items-center gap-1 text-[10px] font-semibold text-zinc-500 cursor-pointer hover:text-zinc-800">
-                    <span>This year</span>
-                    <ChevronDown size={12} />
-                  </div>
-                </div>
 
-                {/* Scalable Vector Line Chart representing sales statistics */}
-                <div className="relative w-full h-32 bg-zinc-50/35 border border-zinc-100 rounded-lg p-2 flex flex-col justify-between">
-                  {/* Grid Lines */}
-                  <div className="absolute inset-0 p-2 flex flex-col justify-between pointer-events-none">
-                    <div className="w-full border-t border-zinc-200/50"></div>
-                    <div className="w-full border-t border-zinc-200/50"></div>
-                    <div className="w-full border-t border-zinc-200/50"></div>
-                  </div>
-
-                  {/* SVG Chart paths */}
-                  <svg className="w-full h-full overflow-visible" viewBox="0 0 300 90">
-                    {/* Dashed Target line */}
-                    <line x1="0" y1="55" x2="300" y2="55" stroke="#e4e4e7" strokeWidth="1" strokeDasharray="3,3" />
-                    
-                    {/* 2023 Light Grey Line */}
-                    <path 
-                      d="M0,70 Q25,60 50,65 T100,55 T150,68 T200,60 T250,55 T300,45" 
-                      fill="none" 
-                      stroke="#e4e4e7" 
-                      strokeWidth="1.5" 
-                    />
-
-                    {/* 2024 Black Line */}
-                    <path 
-                      d="M0,50 Q25,40 50,45 T100,52 T150,75 T200,68 T250,62 T300,48" 
-                      fill="none" 
-                      stroke="#18181b" 
-                      strokeWidth="2" 
-                    />
-
-                    {/* Reference Point vertical line */}
-                    <line x1="225" y1="20" x2="225" y2="85" stroke="#18181b" strokeWidth="1" strokeDasharray="2,2" />
-                    <circle cx="225" cy="65" r="3" fill="#18181b" />
-                    <text x="230" y="68" fontSize="8" fontWeight="bold" fill="#18181b">30</text>
-
-                    {/* Highlight Box Area */}
-                    <rect x="180" y="20" width="30" height="65" fill="#f4f4f5" opacity="0.4" />
-                  </svg>
-
-                  {/* Months labels */}
-                  <div className="flex justify-between text-[8px] text-zinc-400 font-semibold px-1 pointer-events-none">
-                    <span>January</span>
-                    <span>June</span>
-                    <span>November</span>
-                  </div>
-                </div>
-
-                {/* Chart Foot Legend */}
-                <div className="flex justify-between items-center text-[10px] text-zinc-500 pt-1">
-                  <div className="flex items-center gap-3">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-zinc-300"></span> 2023
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-zinc-900"></span> 2024
-                    </span>
-                  </div>
-                  
-                  {/* Compare to prior toggle */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[9px]">Compare to prior</span>
-                    <div className="w-6 h-3.5 bg-zinc-900 rounded-full p-0.5 cursor-pointer flex items-center justify-end">
-                      <div className="w-2.5 h-2.5 bg-white rounded-full"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-32 text-center text-zinc-400">
@@ -1144,7 +1107,7 @@ export default function Inventory() {
               </div>
             )}
 
-            <Button type="submit" className="w-full mt-2 bg-zinc-900 hover:bg-zinc-800 text-white font-semibold h-9 text-xs" disabled={formLoading}>
+            <Button type="submit" className="w-full mt-2" disabled={formLoading}>
               {formLoading ? 'Saving...' : (isEditing ? 'Update Stock Item' : 'Save Stock Record')}
             </Button>
           </form>

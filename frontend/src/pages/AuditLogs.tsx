@@ -222,7 +222,7 @@ export default function AuditLogs() {
               placeholder="Search user, voucher, SKU..." 
               value={search}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-              className="pl-9 bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-indigo-600 h-9 text-xs rounded-lg"
+              className="pl-9 bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-zinc-400 h-9 text-xs rounded-lg"
             />
           </div>
         </CardContent>

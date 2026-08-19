@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -47,7 +47,7 @@ export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 // Global Fetch Interceptor to include JWT token
 const originalFetch = window.fetch;
 window.fetch = async (input, init) => {
-  const storedToken = localStorage.getItem('token');
+  const storedToken = sessionStorage.getItem('token');
   if (storedToken) {
     init = init || {};
     init.headers = {
@@ -90,21 +90,21 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 export default function App() {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(sessionStorage.getItem('token'));
   const [user, setUser] = useState<AuthUser | null>(
-    localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!) : null
+    sessionStorage.getItem('user') ? JSON.parse(sessionStorage.getItem('user')!) : null
   );
 
   const login = (newToken: string, newUser: AuthUser) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
+    sessionStorage.setItem('token', newToken);
+    sessionStorage.setItem('user', JSON.stringify(newUser));
     setToken(newToken);
     setUser(newUser);
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('user');
     setToken(null);
     setUser(null);
   };
@@ -133,6 +133,32 @@ function Layout() {
   const location = useLocation();
   const [openMobileMenu, setOpenMobileMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const prevUnreadCountRef = useRef(0);
+
+  useEffect(() => {
+    if (unreadCount > prevUnreadCountRef.current) {
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+        
+        gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.15);
+      } catch (e) {
+        console.log('Audio autoplay prevented:', e);
+      }
+    }
+    prevUnreadCountRef.current = unreadCount;
+  }, [unreadCount]);
 
   useEffect(() => {
     if (user && (user.role === 'warehouse_admin' || user.role === 'superadmin')) {

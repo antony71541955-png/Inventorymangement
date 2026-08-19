@@ -226,15 +226,15 @@ export default function ExcelDeduction() {
 
                 <div className="flex gap-3">
                   <Button 
-                    className="flex-1 bg-[#0e121e] hover:bg-zinc-900 text-white font-semibold h-10"
+                    className="flex-1"
                     disabled={!deductFile || deductLoading}
                     onClick={handleDeductUpload}
                   >
                     <FileSpreadsheet size={16} className="mr-2" />
                     <span>{deductLoading ? 'Processing spreadsheet...' : 'Process Deductions'}</span>
                   </Button>
-                  <Button variant="outline" className="border-zinc-200 hover:bg-zinc-50 gap-1.5 text-zinc-700 h-10" onClick={downloadDeductTemplate}>
-                    <Download size={16} />
+                  <Button variant="outline" onClick={downloadDeductTemplate}>
+                    <Download size={16} className="mr-1.5" />
                     <span>Template</span>
                   </Button>
                 </div>
@@ -336,7 +336,7 @@ export default function ExcelDeduction() {
               <CardHeader>
                 <CardTitle className="text-lg font-bold text-zinc-900">Inventory Reconciliation Upload</CardTitle>
                 <CardDescription className="text-xs text-zinc-500 font-medium">
-                  Upload the spreadsheet containing physical counts to update the WMS catalog. This automatically registers new bins/warehouses and resets stock balances to match the sheet details exactly.
+                  Upload the spreadsheet containing physical counts to update the Greens catalog. This automatically registers new bins/warehouses and resets stock balances to match the sheet details exactly.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -395,7 +395,7 @@ export default function ExcelDeduction() {
                 </div>
 
                 <Button 
-                  className="w-full bg-[#0e121e] hover:bg-zinc-900 text-white font-semibold h-10"
+                  className="w-full"
                   disabled={!reconFile || reconLoading}
                   onClick={handleReconUpload}
                 >

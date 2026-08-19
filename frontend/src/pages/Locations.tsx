@@ -232,7 +232,7 @@ export default function Locations() {
                 </div>
                 <Button 
                   type="submit" 
-                  className="w-full bg-zinc-950 hover:bg-zinc-900 text-white font-semibold text-xs h-9"
+                  className="w-full"
                   disabled={submittingWh}
                 >
                   <Plus className="mr-1 h-3.5 w-3.5" />
@@ -284,7 +284,7 @@ export default function Locations() {
                 </div>
                 <Button 
                   type="submit" 
-                  className="w-full bg-zinc-950 hover:bg-zinc-900 text-white font-semibold text-xs h-9"
+                  className="w-full"
                   disabled={submittingBin}
                 >
                   <Plus className="mr-1 h-3.5 w-3.5" />

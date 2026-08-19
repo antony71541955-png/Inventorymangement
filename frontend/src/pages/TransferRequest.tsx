@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Trash2, Check, X, AlertCircle, Edit, Calendar, Package } from 'lucide-react';
 import { API_URL, useAuth } from '../App';
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 interface Customer {
   id: number;
@@ -59,6 +60,7 @@ export default function TransferRequest() {
   const [inventorySearch, setInventorySearch] = useState('');
   const [searchResults, setSearchResults] = useState<InventoryItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [showInventoryDropdown, setShowInventoryDropdown] = useState(false);
   
   const [selectedInventories, setSelectedInventories] = useState<InventoryItem[]>([]);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -532,7 +534,7 @@ export default function TransferRequest() {
       )}
 
       {activeTab === 'CREATE' && (
-        <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-visible">
           <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
             <div className="flex flex-col gap-1">
               <h2 className="text-lg font-semibold text-zinc-800">
@@ -586,16 +588,17 @@ export default function TransferRequest() {
                   <input
                     type="text"
                     placeholder="Search customer..."
-                    className="w-full pl-10 pr-4 py-2.5 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full pl-10 pr-4 py-2.5 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-zinc-400"
                     value={customerSearch}
                     onChange={(e) => {
                       setCustomerSearch(e.target.value);
                       setShowCustomerDropdown(true);
                     }}
                     onFocus={() => setShowCustomerDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
                   />
                   {showCustomerDropdown && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {filteredCustomers.length > 0 ? (
                         filteredCustomers.map(c => (
                           <div 
@@ -629,35 +632,46 @@ export default function TransferRequest() {
                 <input
                   type="text"
                   placeholder="Search inventory by part number or name..."
-                  className="w-full pl-10 pr-4 py-2.5 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full pl-10 pr-4 py-2.5 border border-zinc-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-zinc-400"
                   value={inventorySearch}
-                  onChange={(e) => setInventorySearch(e.target.value)}
+                  onChange={(e) => {
+                    setInventorySearch(e.target.value);
+                    setShowInventoryDropdown(true);
+                  }}
+                  onFocus={() => setShowInventoryDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowInventoryDropdown(false), 200)}
                 />
               </div>
               
-              <div className="mt-2 bg-white border border-zinc-200 rounded-lg shadow-sm max-h-64 overflow-y-auto">
-                {isSearching ? (
-                  <div className="px-4 py-3 text-sm text-zinc-500">Searching...</div>
-                ) : searchResults.length > 0 ? (
-                  searchResults.map(item => (
-                    <div 
-                      key={item.id} 
-                      className="px-4 py-3 hover:bg-zinc-50 cursor-pointer border-b border-zinc-100 last:border-0 flex items-center justify-between group"
-                      onClick={() => handleSelectInventory(item)}
-                    >
-                      <div>
-                        <div className="text-sm font-medium text-zinc-800">{item.part_number}</div>
-                        <div className="text-xs text-zinc-500">{item.item_name}</div>
+              {showInventoryDropdown && (inventorySearch.length > 0 || searchResults.length > 0) && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                  {isSearching ? (
+                    <div className="px-4 py-3 text-sm text-zinc-500">Searching...</div>
+                  ) : searchResults.length > 0 ? (
+                    searchResults.map(item => (
+                      <div 
+                        key={item.id} 
+                        className="px-4 py-3 hover:bg-zinc-50 cursor-pointer border-b border-zinc-100 last:border-0 flex items-center justify-between group"
+                        onClick={() => {
+                          handleSelectInventory(item);
+                          setShowInventoryDropdown(false);
+                          setInventorySearch('');
+                        }}
+                      >
+                        <div>
+                          <div className="text-sm font-medium text-zinc-800">{item.part_number}</div>
+                          <div className="text-xs text-zinc-500">{item.item_name}</div>
+                        </div>
+                        <button className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                          Select
+                        </button>
                       </div>
-                      <button className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                        Select
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="px-4 py-3 text-sm text-zinc-500">No inventory found.</div>
-                )}
-              </div>
+                    ))
+                  ) : (
+                    <div className="px-4 py-3 text-sm text-zinc-500">No inventory found.</div>
+                  )}
+                </div>
+              )}
             </div>
 
             {selectedInventories.length > 0 && (
@@ -713,7 +727,7 @@ export default function TransferRequest() {
                                       max={loc.quantity}
                                       value={val}
                                       onChange={(e) => handleQuantityChange(item.part_number, loc.warehouse, loc.bin_location, e.target.value, loc.quantity)}
-                                      className="w-full px-3 py-1.5 border border-zinc-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                      className="w-full px-3 py-1.5 border border-zinc-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400"
                                       disabled={!!editingPicklistId}
                                     />
                                   </td>
@@ -793,20 +807,19 @@ export default function TransferRequest() {
               
               {editingPicklistId && editingPicklistTransferStatus === 'Transfer Decisions Made' && editingPicklistOverallStatus === 'Pending' && (
                 <div className="flex items-center gap-2 mr-4 border-r border-zinc-200 pr-4">
-                  <button 
+                  <Button 
                     onClick={() => handleUpdateOverallStatus('Approved')}
                     disabled={isSubmitting}
-                    className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors"
                   >
                     Approve Transfer Request
-                  </button>
-                  <button 
+                  </Button>
+                  <Button 
+                    variant="destructive"
                     onClick={() => handleUpdateOverallStatus('Rejected')}
                     disabled={isSubmitting}
-                    className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition-colors"
                   >
                     Reject Transfer Request
-                  </button>
+                  </Button>
                 </div>
               )}
               
@@ -817,13 +830,12 @@ export default function TransferRequest() {
               )}
               
               {(!editingPicklistOverallStatus || editingPicklistOverallStatus === 'Pending') && (
-                <button 
+                <Button 
                   onClick={handleSubmit}
                   disabled={isSubmitting || !selectedCustomer || selectedInventories.length === 0}
-                  className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg font-medium shadow-sm transition-colors flex items-center gap-2"
                 >
                   {isSubmitting ? 'Saving...' : (editingPicklistId ? 'Save Changes' : 'Submit Transfer Request')}
-                </button>
+                </Button>
               )}
             </div>
           </div>

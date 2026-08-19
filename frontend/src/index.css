@@ -156,7 +156,7 @@ body {
 .form-control:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 0 0 3px rgba(161, 161, 170, 0.4);
 }
 
 /* Buttons */

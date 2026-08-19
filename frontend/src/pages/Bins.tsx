@@ -105,7 +105,7 @@ export default function Bins() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={16} />
               <Input 
                 placeholder="Search part no, item name..." 
-                className="pl-9 h-9 text-xs bg-zinc-50 border-zinc-200 focus-visible:ring-indigo-600 rounded-full"
+                className="pl-9 h-9 text-xs bg-zinc-50 border-zinc-200 focus-visible:ring-zinc-400 rounded-full"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -173,7 +173,6 @@ export default function Bins() {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  className="h-8 text-xs px-3 bg-white border-zinc-200 text-zinc-700"
                   disabled={page <= 1}
                   onClick={() => handlePageChange(page - 1)}
                 >
@@ -182,7 +181,6 @@ export default function Bins() {
                 <Button 
                   variant="outline" 
                   size="sm" 
-                  className="h-8 text-xs px-3 bg-white border-zinc-200 text-zinc-700"
                   disabled={page >= totalPages}
                   onClick={() => handlePageChange(page + 1)}
                 >

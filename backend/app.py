@@ -5,8 +5,9 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 from PIL import Image
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
+import json
 import bcrypt
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='/')
 # --- CORS: allow localhost in dev and the deployed frontend in production ---
@@ -545,12 +546,15 @@ def delete_user(user_id):
     conn = get_db_connection()
     c = conn.cursor()
     
-    # Get user to delete
     c.execute("SELECT username, role FROM users WHERE id = ?", (user_id,))
     target_user = c.fetchone()
     if not target_user:
         conn.close()
         return jsonify({"error": "User not found."}), 404
+        
+    if target_user["username"].lower() == "superadmin":
+        conn.close()
+        return jsonify({"error": "The root superadmin account cannot be deleted."}), 403
         
     try:
         c.execute("BEGIN TRANSACTION")
@@ -594,6 +598,13 @@ def update_user(user_id):
     conn = get_db_connection()
     c = conn.cursor()
     
+    c.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+    target_user = c.fetchone()
+    if target_user and target_user["username"].lower() == "superadmin":
+        if username.lower() != "superadmin" or role != "superadmin":
+            conn.close()
+            return jsonify({"error": "The root superadmin account's username and role cannot be changed."}), 403
+            
     try:
         if password:
             hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -1883,106 +1894,120 @@ def upload_excel_inventory():
                     return parts[0], parts[1]
             return loc_str, 'DEFAULT'
             
-        c.execute("BEGIN TRANSACTION")
-        voucher = generate_voucher_number("STJ-BULK-XLS")
-        
-        for idx, row in df.iterrows():
-            # If part number parsed as float, e.g., 200275.0, cast to clean int string first
-            raw_part = row[part_number_col]
-            if pd.notna(raw_part):
-                if isinstance(raw_part, (int, float)):
-                    part_number = str(int(raw_part)).strip().upper()
-                else:
-                    part_number = str(raw_part).strip().upper()
-                    if part_number.endswith('.0'):
-                        part_number = part_number[:-2]
-            else:
-                part_number = ''
-                
-            item_name = str(row[item_name_col]).strip() if pd.notna(row[item_name_col]) else ''
+        def generate():
+            conn = get_db_connection()
+            c = conn.cursor()
+            c.execute("BEGIN TRANSACTION")
+            voucher = generate_voucher_number("STJ-BULK-XLS")
             
-            if not part_number or part_number.lower() == 'nan' or not item_name or item_name.lower() == 'nan':
-                errors.append(f"Row {idx+2}: Missing Part Number or Item Name.")
-                continue
-                
-            group = str(row[group_col]).strip() if (group_col and pd.notna(row[group_col])) else 'Uncategorized'
-            if group.lower() == 'nan':
-                group = 'Uncategorized'
-                
-            selling_price = 0.0
-            if selling_price_col and pd.notna(row[selling_price_col]):
-                try:
-                    selling_price = float(row[selling_price_col])
-                except ValueError:
-                    pass
-                    
-            location_val = str(row[location_col]).strip() if (location_col and pd.notna(row[location_col])) else 'MAIN'
-            wh_code, bin_code = parse_location(location_val)
+            success_count = 0
+            errors = []
+            total_rows = len(df)
             
-            quantity = 0
-            if location_stock_col and pd.notna(row[location_stock_col]):
-                try:
-                    quantity = int(float(row[location_stock_col]))
-                except ValueError:
-                    pass
-            
-            # 1. Upsert Item
-            c.execute('''
-                INSERT INTO items (part_number, item_name, category, unit_of_measure, min_stock, item_type, batch_no, expiry, selling_price)
-                VALUES (?, ?, ?, 'pcs', 10, 'non food', '', '', ?)
-                ON CONFLICT(part_number) 
-                DO UPDATE SET item_name = excluded.item_name, category = excluded.category, selling_price = excluded.selling_price
-            ''', (part_number, item_name, group, selling_price))
-            
-            # 2. Upsert stock_balances if quantity specified
-            if quantity > 0:
-                # 2.1 Upsert Warehouse master
-                c.execute("SELECT id FROM warehouses WHERE code = ?", (wh_code,))
-                wh_row = c.fetchone()
-                if not wh_row:
-                    c.execute("INSERT INTO warehouses (code, name) VALUES (?, ?)", (wh_code, f"{wh_code} Warehouse"))
-                    wh_id = c.lastrowid
-                else:
-                    wh_id = wh_row["id"]
-                    
-                # 2.2 Upsert Bin master
-                c.execute("SELECT id FROM bins WHERE warehouse_id = ? AND code = ?", (wh_id, bin_code))
-                bin_row = c.fetchone()
-                if not bin_row:
-                    c.execute("INSERT INTO bins (warehouse_id, code) VALUES (?, ?)", (wh_id, bin_code))
-                
-                # 2.3 Upsert stock balance record
-                c.execute('''
-                    INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity, batch_no, expiry)
-                    VALUES (?, ?, ?, ?, '', '')
-                    ON CONFLICT(part_number, warehouse, bin_location, batch_no) 
-                    DO UPDATE SET quantity = quantity + excluded.quantity
-                ''', (part_number, wh_code, bin_code, quantity))
-                
-                # 2.4 Log addition in journal
-                c.execute('''
-                    INSERT INTO stock_journal (voucher_number, transaction_type, part_number, quantity, to_warehouse, to_bin, user_name, remarks)
-                    VALUES (?, 'ADDITION', ?, ?, ?, ?, ?, 'Excel Bulk Upload Import')
-                ''', (voucher, part_number, quantity, wh_code, bin_code, request.user["full_name"]))
-                
-            success_count += 1
-            
-        c.execute("COMMIT")
-        conn.commit()
-        conn.close()
-        return jsonify({
-            "success": f"Successfully processed {success_count} item rows",
-            "errors": errors
-        }), 200
-        
-    except Exception as e:
-        if 'conn' in locals():
             try:
+                for idx, row in df.iterrows():
+                    # Send progress update every max(1, total_rows//50) rows
+                    if idx % max(1, total_rows // 50) == 0:
+                        progress = int((idx / total_rows) * 100)
+                        yield json.dumps({"progress": progress}) + "\n"
+                        
+                    raw_part = row[part_number_col]
+                    if pd.notna(raw_part):
+                        if isinstance(raw_part, (int, float)):
+                            part_number = str(int(raw_part)).strip().upper()
+                        else:
+                            part_number = str(raw_part).strip().upper()
+                            if part_number.endswith('.0'):
+                                part_number = part_number[:-2]
+                    else:
+                        part_number = ''
+                        
+                    item_name = str(row[item_name_col]).strip() if pd.notna(row[item_name_col]) else ''
+                    
+                    if not part_number or part_number.lower() == 'nan' or not item_name or item_name.lower() == 'nan':
+                        errors.append(f"Row {idx+2}: Missing Part Number or Item Name.")
+                        continue
+                        
+                    group = str(row[group_col]).strip() if (group_col and pd.notna(row[group_col])) else 'Uncategorized'
+                    if group.lower() == 'nan':
+                        group = 'Uncategorized'
+                        
+                    selling_price = 0.0
+                    if selling_price_col and pd.notna(row[selling_price_col]):
+                        try:
+                            selling_price = float(row[selling_price_col])
+                        except ValueError:
+                            pass
+                            
+                    location_val = str(row[location_col]).strip() if (location_col and pd.notna(row[location_col])) else 'MAIN'
+                    wh_code, bin_code = parse_location(location_val)
+                    
+                    quantity = 0
+                    if location_stock_col and pd.notna(row[location_stock_col]):
+                        try:
+                            quantity = int(float(row[location_stock_col]))
+                        except ValueError:
+                            pass
+                    
+                    # 1. Upsert Item
+                    c.execute('''
+                        INSERT INTO items (part_number, item_name, category, unit_of_measure, min_stock, item_type, batch_no, expiry, selling_price)
+                        VALUES (?, ?, ?, 'pcs', 10, 'non food', '', '', ?)
+                        ON CONFLICT(part_number) 
+                        DO UPDATE SET item_name = excluded.item_name, category = excluded.category, selling_price = excluded.selling_price
+                    ''', (part_number, item_name, group, selling_price))
+                    
+                    # 2. Upsert stock_balances if quantity specified
+                    if quantity > 0:
+                        # 2.1 Upsert Warehouse master
+                        c.execute("SELECT id FROM warehouses WHERE code = ?", (wh_code,))
+                        wh_row = c.fetchone()
+                        if not wh_row:
+                            c.execute("INSERT INTO warehouses (code, name) VALUES (?, ?)", (wh_code, f"{wh_code} Warehouse"))
+                            wh_id = c.lastrowid
+                        else:
+                            wh_id = wh_row["id"]
+                            
+                        # 2.2 Upsert Bin master
+                        c.execute("SELECT id FROM bins WHERE warehouse_id = ? AND code = ?", (wh_id, bin_code))
+                        bin_row = c.fetchone()
+                        if not bin_row:
+                            c.execute("INSERT INTO bins (warehouse_id, code) VALUES (?, ?)", (wh_id, bin_code))
+                        
+                        # 2.3 Upsert stock balance record
+                        c.execute('''
+                            INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity, batch_no, expiry)
+                            VALUES (?, ?, ?, ?, '', '')
+                            ON CONFLICT(part_number, warehouse, bin_location, batch_no) 
+                            DO UPDATE SET quantity = quantity + excluded.quantity
+                        ''', (part_number, wh_code, bin_code, quantity))
+                        
+                        # 2.4 Log addition in journal
+                        c.execute('''
+                            INSERT INTO stock_journal (voucher_number, transaction_type, part_number, quantity, to_warehouse, to_bin, user_name, remarks)
+                            VALUES (?, 'ADDITION', ?, ?, ?, ?, ?, 'Excel Bulk Upload Import')
+                        ''', (voucher, part_number, quantity, wh_code, bin_code, request.user["full_name"]))
+                        
+                    success_count += 1
+                    
+                c.execute("COMMIT")
+                conn.commit()
+                yield json.dumps({
+                    "progress": 100,
+                    "success": f"Successfully processed {success_count} item rows",
+                    "errors": errors
+                }) + "\n"
+                
+            except Exception as e:
                 c.execute("ROLLBACK")
+                yield json.dumps({"error": f"Failed to process Excel file: {str(e)}"}) + "\n"
+            finally:
                 conn.close()
-            except Exception:
-                pass
-        return jsonify({"error": f"Failed to process Excel file: {str(e)}"}), 500
+
+        return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to process request: {str(e)}"}), 500
 
 # --- CUSTOMERS API ROUTES ---
 

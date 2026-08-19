@@ -244,8 +244,8 @@ export default function Users() {
                   <Input
                     id="user-fullname-input"
                     type="text"
-                    placeholder="e.g. Antony Kuriyan"
-                    className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-indigo-600"
+                    placeholder="e.g. John Doe"
+                    className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-zinc-400"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     required
@@ -257,8 +257,8 @@ export default function Users() {
                   <Input
                     id="user-username-input"
                     type="text"
-                    placeholder="e.g. antonyk"
-                    className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-indigo-600"
+                    placeholder="e.g. johndoe"
+                    className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-zinc-400"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     required
@@ -271,7 +271,7 @@ export default function Users() {
                     id="user-password-input"
                     type="password"
                     placeholder={editingUserId ? "•••••••• (Leave blank to keep current)" : "••••••••"}
-                    className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-indigo-600"
+                    className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-zinc-400"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required={!editingUserId}
@@ -281,7 +281,7 @@ export default function Users() {
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Access Authorization Role</label>
                   <Select value={role} onValueChange={(val) => setRole(val)}>
-                    <SelectTrigger className="bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-indigo-600">
+                    <SelectTrigger className="bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-zinc-400">
                       <SelectValue placeholder="Select user role" />
                     </SelectTrigger>
                     <SelectContent className="bg-white border-zinc-200 text-zinc-900">
@@ -297,7 +297,7 @@ export default function Users() {
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Assign Warehouse</label>
                     <Select value={warehouseCode} onValueChange={(val) => setWarehouseCode(val)}>
-                      <SelectTrigger className="bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-indigo-600">
+                      <SelectTrigger className="bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-zinc-400">
                         <SelectValue placeholder="Select warehouse" />
                       </SelectTrigger>
                       <SelectContent className="bg-white border-zinc-200 text-zinc-900">
@@ -313,23 +313,30 @@ export default function Users() {
                   <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Custom Menu Access</label>
                   <p className="text-[10px] text-zinc-500 mb-2">Select which modules this user can access in the sidebar.</p>
                   <div className="grid grid-cols-2 gap-2">
-                    {AVAILABLE_MENUS.map(menu => (
-                      <label key={menu.path} className="flex items-center space-x-2 text-xs text-zinc-700 cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          className="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
-                          checked={menuAccess.includes(menu.path)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setMenuAccess([...menuAccess, menu.path]);
-                            } else {
-                              setMenuAccess(menuAccess.filter(p => p !== menu.path));
-                            }
-                          }}
-                        />
-                        <span>{menu.name}</span>
-                      </label>
-                    ))}
+                    {AVAILABLE_MENUS.map(menu => {
+                      const isChecked = menuAccess.includes(menu.path);
+                      return (
+                        <label key={menu.path} className="flex items-center space-x-3 text-xs text-zinc-700 cursor-pointer">
+                          <div className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full">
+                            <input 
+                              type="checkbox" 
+                              className="sr-only"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setMenuAccess([...menuAccess, menu.path]);
+                                } else {
+                                  setMenuAccess(menuAccess.filter(p => p !== menu.path));
+                                }
+                              }}
+                            />
+                            <div className={`h-5 w-9 rounded-full transition-colors ${isChecked ? 'bg-emerald-500' : 'bg-zinc-200'}`} />
+                            <div className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${isChecked ? 'translate-x-4' : 'translate-x-0'}`} />
+                          </div>
+                          <span className="font-medium">{menu.name}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -337,7 +344,7 @@ export default function Users() {
                   <Button 
                     id="create-user-btn"
                     type="submit" 
-                    className="flex-1 bg-[#0e121e] hover:bg-zinc-900 text-white font-semibold shadow-sm text-xs py-2 h-10" 
+                    className="flex-1" 
                     disabled={actionLoading}
                   >
                     {actionLoading ? (editingUserId ? 'Updating...' : 'Creating...') : (editingUserId ? 'Update Profile' : 'Create WMS Credentials')}
@@ -348,7 +355,6 @@ export default function Users() {
                       type="button"
                       variant="outline"
                       onClick={cancelEdit}
-                      className="border-zinc-200 hover:bg-zinc-50 text-xs font-semibold h-10 px-4 rounded-lg"
                       disabled={actionLoading}
                     >
                       Cancel
@@ -475,14 +481,13 @@ export default function Users() {
                   id="cancel-delete-btn"
                   variant="outline" 
                   onClick={() => setDeleteConfirmUser(null)}
-                  className="border-zinc-200 hover:bg-zinc-50 text-xs font-semibold h-9 px-4 rounded-lg"
                 >
                   Cancel
                 </Button>
                 <Button 
                   id="confirm-delete-btn"
+                  variant="destructive"
                   onClick={() => executeDeleteUser(deleteConfirmUser.id, deleteConfirmUser.username)}
-                  className="bg-red-600 hover:bg-red-700 text-white font-semibold text-xs h-9 px-4 rounded-lg shadow-sm"
                 >
                   Delete Account
                 </Button>

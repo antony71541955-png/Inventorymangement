@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Trash2, Check, X, FileText, Download, CheckCircle, Package, ArrowRight } from 'lucide-react';
 import { API_URL, useAuth } from '../App';
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -364,12 +365,13 @@ export default function Picklist() {
                   </td>
                   <td className="px-6 py-4 text-zinc-500">{new Date(pl.created_at).toLocaleDateString()}</td>
                   <td className="px-6 py-4 text-right">
-                    <button 
+                    <Button 
+                      variant="outline"
+                      size="sm"
                       onClick={() => downloadPDF(pl.id)}
-                      className="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-md transition-colors font-medium text-xs"
                     >
-                      <Download size={14} /> PDF
-                    </button>
+                      <Download size={14} className="mr-1" /> PDF
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -409,12 +411,11 @@ export default function Picklist() {
                   </td>
                   <td className="px-6 py-4 text-zinc-500">{new Date(req.created_at).toLocaleDateString()}</td>
                   <td className="px-6 py-4 text-right">
-                    <button 
+                    <Button 
                       onClick={() => handleImportApprovedRequest(req)}
-                      className="inline-flex items-center gap-1.5 text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-md transition-colors font-medium text-xs shadow-sm"
                     >
-                      Create Picklist <ArrowRight size={14} />
-                    </button>
+                      Create Picklist <ArrowRight size={14} className="ml-1.5" />
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -453,7 +454,7 @@ export default function Picklist() {
                     <input
                       type="text"
                       placeholder="Search customer..."
-                      className="w-full pl-9 pr-4 py-2 border border-zinc-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pl-9 pr-4 py-2 border border-zinc-300 rounded-lg text-sm focus:ring-2 focus:ring-zinc-400"
                       value={customerSearch}
                       onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
                       onFocus={() => setShowCustomerDropdown(true)}
@@ -494,7 +495,7 @@ export default function Picklist() {
               <input
                 type="text"
                 placeholder="Search inventory to add..."
-                className="w-full pl-9 pr-4 py-2 border border-zinc-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                className="w-full pl-9 pr-4 py-2 border border-zinc-300 rounded-lg text-sm focus:ring-2 focus:ring-zinc-400"
                 value={inventorySearch}
                 onChange={(e) => setInventorySearch(e.target.value)}
               />
@@ -573,7 +574,7 @@ export default function Picklist() {
                           }}
                           className={cn(
                             "w-full border rounded-md py-1.5 px-3 text-sm",
-                            item.isLocked ? "bg-zinc-100 border-zinc-200 text-zinc-500 cursor-not-allowed" : "border-zinc-300 focus:ring-indigo-500"
+                            item.isLocked ? "bg-zinc-100 border-zinc-200 text-zinc-500 cursor-not-allowed" : "border-zinc-300 focus:ring-zinc-400"
                           )}
                         />
                         {item.isLocked && <p className="text-[10px] text-zinc-400 mt-1">Approved Qty (Locked)</p>}
@@ -594,14 +595,12 @@ export default function Picklist() {
             
             {selectedItems.length > 0 && (
               <div className="mt-6 flex justify-end">
-                <button
+                <Button
                   onClick={handleCreatePicklist}
                   disabled={isSubmitting}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-medium shadow-sm flex items-center gap-2"
                 >
-                  <FileText size={18} />
-                  {isSubmitting ? 'Creating...' : 'Create Picklist'}
-                </button>
+                  {isSubmitting ? 'Processing...' : 'Create Picklist Document'}
+                </Button>
               </div>
             )}
           </div>
