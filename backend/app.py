@@ -2615,7 +2615,7 @@ def get_dispatch_picklists():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('''
-        SELECT dp.id, dp.customer_id, dp.invoice_number, dp.status, dp.created_at, c.customer_name 
+        SELECT dp.id, dp.customer_id, dp.invoice_number, dp.status, dp.created_at, dp.qc_approved_by, dp.qc_approved_at, c.customer_name 
         FROM dispatch_picklists dp
         JOIN customers c ON dp.customer_id = c.id
         ORDER BY dp.created_at DESC
@@ -2690,6 +2690,53 @@ def create_dispatch_picklist():
     conn.close()
     return jsonify({"success": True, "picklist_id": picklist_id}), 201
 
+@app.route('/api/dispatch_picklists/<int:id>/qc_approve', methods=['PUT'])
+@login_required
+def qc_approve_dispatch_picklist(id):
+    data = request.json
+    invoice_number = data.get('invoice_number')
+    
+    if not invoice_number:
+        return jsonify({"error": "Invoice Number is required"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        c.execute("BEGIN TRANSACTION")
+        
+        c.execute("SELECT id, status FROM dispatch_picklists WHERE id = ?", (id,))
+        picklist = c.fetchone()
+        if not picklist:
+            c.execute("ROLLBACK")
+            conn.close()
+            return jsonify({"error": "Picklist not found"}), 404
+            
+        if picklist['status'] == 'QC Approved':
+            c.execute("ROLLBACK")
+            conn.close()
+            return jsonify({"error": "Picklist is already QC Approved"}), 400
+            
+        # Update picklist status and invoice number
+        c.execute('''
+            UPDATE dispatch_picklists 
+            SET invoice_number = ?, status = 'QC Approved', qc_approved_by = ?, qc_approved_at = CURRENT_TIMESTAMP 
+            WHERE id = ?
+        ''', (invoice_number, request.user['full_name'], id))
+                  
+        # Mark all items as qc verified
+        c.execute("UPDATE dispatch_picklist_items SET qc_verified = 1 WHERE dispatch_picklist_id = ?", (id,))
+        
+        c.execute("COMMIT")
+        conn.commit()
+    except Exception as e:
+        c.execute("ROLLBACK")
+        conn.close()
+        return jsonify({"error": str(e)}), 500
+        
+    conn.close()
+    return jsonify({"success": True}), 200
+
 @app.route('/api/dispatch_picklists/<int:id>', methods=['GET'])
 @login_required
 def get_dispatch_picklist(id):
@@ -2697,7 +2744,7 @@ def get_dispatch_picklist(id):
     c = conn.cursor()
     
     c.execute('''
-        SELECT dp.id, dp.customer_id, dp.invoice_number, dp.status, dp.created_at, c.customer_name 
+        SELECT dp.id, dp.customer_id, dp.invoice_number, dp.status, dp.created_at, dp.qc_approved_by, dp.qc_approved_at, c.customer_name 
         FROM dispatch_picklists dp
         JOIN customers c ON dp.customer_id = c.id
         WHERE dp.id = ?
@@ -2709,7 +2756,7 @@ def get_dispatch_picklist(id):
         return jsonify({"error": "Picklist not found"}), 404
         
     c.execute('''
-        SELECT pi.id, pi.part_number, pi.warehouse, pi.bin_location, pi.batch_no, pi.expiry, pi.quantity, i.item_name
+        SELECT pi.id, pi.part_number, pi.warehouse, pi.bin_location, pi.batch_no, pi.expiry, pi.quantity, pi.qc_verified, i.item_name
         FROM dispatch_picklist_items pi
         JOIN items i ON pi.part_number = i.part_number
         WHERE pi.dispatch_picklist_id = ?

@@ -18,7 +18,8 @@ import {
   User,
   Users as UsersIcon,
   History,
-  ClipboardList
+  ClipboardList,
+  CheckCircle
 } from 'lucide-react';
 
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -40,6 +41,7 @@ import Picklist from './pages/Picklist';
 // import Bins from './pages/Bins';
 
 import Notifications from './pages/Notifications';
+import QualityCheck from './pages/QualityCheck';
 
 // Constants — uses VITE_API_URL env var in production (set in Render dashboard)
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -195,6 +197,7 @@ function Layout() {
     { path: '/customers', name: 'Customers', icon: <UsersIcon size={16} /> },
     { path: '/transfer-request', name: 'Transfer Request', icon: <ClipboardList size={16} /> },
     { path: '/picklist', name: 'Picklist', icon: <ClipboardList size={16} /> },
+    { path: '/qc', name: 'Quality Check', icon: <CheckCircle size={16} /> },
   ];
 
   const menuItems = user?.menu_access && Array.isArray(user.menu_access) && user.menu_access.length > 0 
@@ -404,6 +407,7 @@ function Layout() {
             <Route path="/customers" element={<Customers />} />
             <Route path="/transfer-request" element={<TransferRequest />} />
             <Route path="/picklist" element={<Picklist />} />
+            <Route path="/qc" element={<QualityCheck />} />
             <Route path="/bins" element={<Bins />} />
             <Route path="/notifications" element={<Notifications />} />
             {user?.role === 'superadmin' && (
