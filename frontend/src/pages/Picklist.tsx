@@ -295,11 +295,18 @@ export default function Picklist() {
         setImportedRequestId(null);
         setActiveTab('LIST');
       } else {
-        const err = await res.json();
-        alert(err.error || "Failed to create picklist.");
+        let errMsg = "Failed to create picklist.";
+        try {
+          const err = await res.json();
+          errMsg = err.error || errMsg;
+        } catch (parseErr) {
+          errMsg = "Server error occurred. Please try again.";
+        }
+        alert(errMsg);
       }
-    } catch (e) {
-      alert("Error saving picklist.");
+    } catch (e: any) {
+      console.error(e);
+      alert("Network error or server is down. Please check your connection.");
     } finally {
       setIsSubmitting(false);
     }
