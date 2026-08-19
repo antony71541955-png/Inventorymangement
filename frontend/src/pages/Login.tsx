@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, API_URL } from '../App';
 import { Button } from "@/components/ui/button";
+import { ValidatedInput } from "@/components/ui/ValidatedInput";
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [apiError, setApiError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   
   const { login, token } = useAuth();
@@ -20,7 +22,18 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setApiError(null);
+    
+    const newErrors: Record<string, string> = {};
+    if (!username.trim()) newErrors.username = "Username is required";
+    if (!password.trim()) newErrors.password = "Password is required";
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
+    setErrors({});
     setLoading(true);
 
     try {
@@ -38,7 +51,7 @@ export default function Login() {
       login(data.token, data.user);
       navigate('/');
     } catch (err: any) {
-      setError(err.message || 'Something went wrong');
+      setApiError(err.message || 'Something went wrong');
     } finally {
       setLoading(false);
     }
@@ -70,29 +83,37 @@ export default function Login() {
           </p>
         </div>
 
-        {error && (
+        {apiError && (
           <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-lg mb-4 text-center">
-            {error}
+            {apiError}
           </div>
         )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
-           <input 
+           <ValidatedInput 
+              label=""
               type="text"
               placeholder="Username"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
+              onChange={(e) => {
+                setUsername(e.target.value);
+                if (errors.username) setErrors({ ...errors, username: '' });
+              }}
+              error={errors.username}
               autoComplete="off"
               className="w-full bg-white text-zinc-900 border-0 rounded-md px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#8f1a2e] transition-all"
            />
-           <input 
+           <ValidatedInput 
+              label=""
               type="password"
               placeholder="••••••••"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errors.password) setErrors({ ...errors, password: '' });
+              }}
+              error={errors.password}
               autoComplete="off"
               className="w-full bg-white text-zinc-900 border-0 rounded-md px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#8f1a2e] transition-all"
            />

@@ -13,9 +13,10 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/ValidatedInput";
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SuccessModal } from "@/components/ui/SuccessModal";
 import { Badge } from "@/components/ui/badge";
 
 interface CustomerItem {
@@ -42,9 +43,9 @@ export default function Customers() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
-  // Feedback alerts
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState(false);
 
   // Edit state
@@ -54,6 +55,7 @@ export default function Customers() {
   const [editCrCash, setEditCrCash] = useState('CR');
   const [editLocation, setEditLocation] = useState('DUBAI');
   const [editSalesman, setEditSalesman] = useState('ISAMAIL');
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
 
   const fetchCustomers = async () => {
     setLoading(true);
@@ -84,6 +86,18 @@ export default function Customers() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    
+    const newErrors: Record<string, string> = {};
+    if (!customerName.trim()) newErrors.customerName = "Customer Name is required";
+    if (!location.trim()) newErrors.location = "Location is required";
+    if (!salesman.trim()) newErrors.salesman = "Salesman is required";
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
+    setErrors({});
     setActionLoading(true);
 
     try {
@@ -179,6 +193,18 @@ export default function Customers() {
     
     setError(null);
     setSuccess(null);
+    
+    const newErrors: Record<string, string> = {};
+    if (!editCustomerName.trim()) newErrors.editCustomerName = "Customer Name is required";
+    if (!editLocation.trim()) newErrors.editLocation = "Location is required";
+    if (!editSalesman.trim()) newErrors.editSalesman = "Salesman is required";
+    
+    if (Object.keys(newErrors).length > 0) {
+      setEditErrors(newErrors);
+      return;
+    }
+    
+    setEditErrors({});
     setActionLoading(true);
 
     try {
@@ -231,12 +257,11 @@ export default function Customers() {
         </div>
       )}
 
-      {success && (
-        <div className="bg-emerald-50 border border-emerald-250 text-emerald-700 text-xs font-semibold p-4 rounded-xl flex items-center gap-3 shadow-sm">
-          <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-          <span>{success}</span>
-        </div>
-      )}
+      <SuccessModal
+        isOpen={!!success}
+        message={success}
+        onClose={() => setSuccess(null)}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Forms Column */}
@@ -256,13 +281,17 @@ export default function Customers() {
             <CardContent className="pt-5">
               <form onSubmit={handleCreateCustomer} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-zinc-700">Customer Name</label>
-                  <Input 
+                  <ValidatedInput 
+                    label="Customer Name"
                     type="text" 
                     required 
                     placeholder="e.g. ACCL International DMCC" 
                     value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
+                    onChange={(e) => {
+                      setCustomerName(e.target.value);
+                      if (errors.customerName) setErrors({ ...errors, customerName: '' });
+                    }}
+                    error={errors.customerName}
                     className="h-9 text-xs"
                   />
                 </div>
@@ -281,25 +310,33 @@ export default function Customers() {
                 </div>
                 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-zinc-700">Location</label>
-                  <Input 
+                  <ValidatedInput 
+                    label="Location"
                     type="text" 
                     required 
                     placeholder="e.g. DUBAI" 
                     value={location}
-                    onChange={(e) => setLocation(e.target.value)}
+                    onChange={(e) => {
+                      setLocation(e.target.value);
+                      if (errors.location) setErrors({ ...errors, location: '' });
+                    }}
+                    error={errors.location}
                     className="h-9 text-xs"
                   />
                 </div>
                 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-zinc-700">Salesman</label>
-                  <Input 
+                  <ValidatedInput 
+                    label="Salesman"
                     type="text" 
                     required 
                     placeholder="e.g. ISAMAIL" 
                     value={salesman}
-                    onChange={(e) => setSalesman(e.target.value)}
+                    onChange={(e) => {
+                      setSalesman(e.target.value);
+                      if (errors.salesman) setErrors({ ...errors, salesman: '' });
+                    }}
+                    error={errors.salesman}
                     className="h-9 text-xs"
                   />
                 </div>
@@ -441,12 +478,16 @@ export default function Customers() {
           </DialogHeader>
           <form onSubmit={handleEditSubmit} className="space-y-4 pt-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-700">Customer Name</label>
-              <Input 
+              <ValidatedInput 
+                label="Customer Name"
                 type="text" 
                 required 
                 value={editCustomerName}
-                onChange={(e) => setEditCustomerName(e.target.value)}
+                onChange={(e) => {
+                  setEditCustomerName(e.target.value);
+                  if (editErrors.editCustomerName) setEditErrors({ ...editErrors, editCustomerName: '' });
+                }}
+                error={editErrors.editCustomerName}
                 className="h-9 text-xs"
               />
             </div>
@@ -465,23 +506,31 @@ export default function Customers() {
             </div>
             
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-700">Location</label>
-              <Input 
+              <ValidatedInput 
+                label="Location"
                 type="text" 
                 required 
                 value={editLocation}
-                onChange={(e) => setEditLocation(e.target.value)}
+                onChange={(e) => {
+                  setEditLocation(e.target.value);
+                  if (editErrors.editLocation) setEditErrors({ ...editErrors, editLocation: '' });
+                }}
+                error={editErrors.editLocation}
                 className="h-9 text-xs"
               />
             </div>
             
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-zinc-700">Salesman</label>
-              <Input 
+              <ValidatedInput 
+                label="Salesman"
                 type="text" 
                 required 
                 value={editSalesman}
-                onChange={(e) => setEditSalesman(e.target.value)}
+                onChange={(e) => {
+                  setEditSalesman(e.target.value);
+                  if (editErrors.editSalesman) setEditErrors({ ...editErrors, editSalesman: '' });
+                }}
+                error={editErrors.editSalesman}
                 className="h-9 text-xs"
               />
             </div>

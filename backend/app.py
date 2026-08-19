@@ -188,6 +188,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS dispatch_picklists (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_id INTEGER NOT NULL,
+            invoice_number TEXT UNIQUE,
             status TEXT DEFAULT 'Created',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
@@ -246,6 +247,13 @@ def init_db():
         c.execute("ALTER TABLE picklist_items ADD COLUMN actual_warehouse TEXT")
     if "actual_bin_location" not in pi_columns:
         c.execute("ALTER TABLE picklist_items ADD COLUMN actual_bin_location TEXT")
+
+    # Ensure columns exist in dispatch_picklists
+    c.execute("PRAGMA table_info(dispatch_picklists)")
+    dp_columns = [row[1] for row in c.fetchall()]
+    if "invoice_number" not in dp_columns:
+        c.execute("ALTER TABLE dispatch_picklists ADD COLUMN invoice_number TEXT")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_picklists_invoice ON dispatch_picklists(invoice_number) WHERE invoice_number IS NOT NULL")
 
     # Ensure columns exist in users
     c.execute("PRAGMA table_info(users)")
@@ -2589,7 +2597,7 @@ def picklist_item_decision(picklist_id, item_id):
             overall_status = 'Rejected'
         else:
             overall_transfer_status = 'Transfer Decisions Made'
-            overall_status = 'Approved'
+            overall_status = 'Pending'
             
     c.execute("UPDATE picklists SET transfer_status = ?, status = ? WHERE id = ?", (overall_transfer_status, overall_status, picklist_id))
     
@@ -2607,7 +2615,7 @@ def get_dispatch_picklists():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('''
-        SELECT dp.id, dp.customer_id, dp.status, dp.created_at, c.customer_name 
+        SELECT dp.id, dp.customer_id, dp.invoice_number, dp.status, dp.created_at, c.customer_name 
         FROM dispatch_picklists dp
         JOIN customers c ON dp.customer_id = c.id
         ORDER BY dp.created_at DESC
@@ -2621,35 +2629,61 @@ def get_dispatch_picklists():
 def create_dispatch_picklist():
     data = request.json
     customer_id = data.get('customer_id')
+    invoice_number = data.get('invoice_number')
     items = data.get('items', [])
     
-    if not customer_id or not items:
-        return jsonify({"error": "Customer and items are required"}), 400
+    if not customer_id or not items or not invoice_number:
+        return jsonify({"error": "Customer, invoice number, and items are required"}), 400
         
     conn = get_db_connection()
     c = conn.cursor()
+
+    c.execute("SELECT id FROM dispatch_picklists WHERE invoice_number = ?", (invoice_number,))
+    if c.fetchone():
+        conn.close()
+        return jsonify({"error": f"Invoice number '{invoice_number}' already exists"}), 400
+
     try:
-        c.execute("INSERT INTO dispatch_picklists (customer_id, status) VALUES (?, 'Created')", (customer_id,))
+        c.execute("BEGIN TRANSACTION")
+        c.execute("INSERT INTO dispatch_picklists (customer_id, invoice_number, status) VALUES (?, ?, 'Created')", (customer_id, invoice_number))
         picklist_id = c.lastrowid
         
         for item in items:
+            part_number = item.get('part_number')
+            warehouse = item.get('warehouse', 'DIS')
+            bin_location = item.get('bin_location', '')
+            batch_no = item.get('batch_no', '')
+            expiry = item.get('expiry', '')
+            qty = item.get('quantity', 0)
+            
+            # Check for stock
+            c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                      (part_number, warehouse, bin_location))
+            stock = c.fetchone()
+            
+            if not stock or stock['quantity'] < qty:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Insufficient stock for {part_number} in {warehouse} - {bin_location}"}), 400
+                
+            # Deduct stock
+            c.execute("UPDATE stock_balances SET quantity = quantity - ? WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                      (qty, part_number, warehouse, bin_location))
+            
             c.execute('''
                 INSERT INTO dispatch_picklist_items 
                 (dispatch_picklist_id, part_number, warehouse, bin_location, batch_no, expiry, quantity)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                picklist_id, 
-                item.get('part_number'), 
-                item.get('warehouse', 'DIS'), 
-                item.get('bin_location', ''),
-                item.get('batch_no', ''),
-                item.get('expiry', ''),
-                item.get('quantity', 0)
-            ))
+            ''', (picklist_id, part_number, warehouse, bin_location, batch_no, expiry, qty))
             
+        transfer_request_id = data.get('transfer_request_id')
+        if transfer_request_id:
+            c.execute("UPDATE picklists SET status = 'Dispatched' WHERE id = ?", (transfer_request_id,))
+            
+        c.execute("COMMIT")
         conn.commit()
     except Exception as e:
-        conn.rollback()
+        c.execute("ROLLBACK")
         conn.close()
         return jsonify({"error": str(e)}), 500
         
@@ -2663,7 +2697,7 @@ def get_dispatch_picklist(id):
     c = conn.cursor()
     
     c.execute('''
-        SELECT dp.id, dp.customer_id, dp.status, dp.created_at, c.customer_name 
+        SELECT dp.id, dp.customer_id, dp.invoice_number, dp.status, dp.created_at, c.customer_name 
         FROM dispatch_picklists dp
         JOIN customers c ON dp.customer_id = c.id
         WHERE dp.id = ?

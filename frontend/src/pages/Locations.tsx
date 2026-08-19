@@ -10,7 +10,8 @@ import {
   Check
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/ValidatedInput";
+import { SuccessModal } from "@/components/ui/SuccessModal";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 
@@ -49,6 +50,8 @@ export default function Locations() {
   // Status feedback messages
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [whErrors, setWhErrors] = useState<Record<string, string>>({});
+  const [binErrors, setBinErrors] = useState<Record<string, string>>({});
   const [submittingWh, setSubmittingWh] = useState(false);
   const [submittingBin, setSubmittingBin] = useState(false);
 
@@ -89,13 +92,18 @@ export default function Locations() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-    setSubmittingWh(true);
-
-    if (!whCode.trim() || !whName.trim()) {
-      setError("Please fill in both Warehouse Code and Name.");
-      setSubmittingWh(false);
+    
+    const newErrors: Record<string, string> = {};
+    if (!whCode.trim()) newErrors.whCode = "Warehouse Code is required";
+    if (!whName.trim()) newErrors.whName = "Warehouse Name is required";
+    
+    if (Object.keys(newErrors).length > 0) {
+      setWhErrors(newErrors);
       return;
     }
+    
+    setWhErrors({});
+    setSubmittingWh(true);
 
     try {
       const res = await fetch(`${API_URL}/api/warehouses`, {
@@ -128,13 +136,18 @@ export default function Locations() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-    setSubmittingBin(true);
-
-    if (!selectedWhId || !binCode.trim()) {
-      setError("Please select a target Warehouse and enter a Bin Code.");
-      setSubmittingBin(false);
+    
+    const newErrors: Record<string, string> = {};
+    if (!selectedWhId) newErrors.selectedWhId = "Warehouse is required";
+    if (!binCode.trim()) newErrors.binCode = "Bin Code is required";
+    
+    if (Object.keys(newErrors).length > 0) {
+      setBinErrors(newErrors);
       return;
     }
+    
+    setBinErrors({});
+    setSubmittingBin(true);
 
     try {
       const res = await fetch(`${API_URL}/api/bins`, {
@@ -185,12 +198,11 @@ export default function Locations() {
           <span>{error}</span>
         </div>
       )}
-      {success && (
-        <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 text-xs p-3.5 rounded-lg max-w-4xl flex items-start gap-2.5">
-          <Check size={15} className="mt-0.5 shrink-0" />
-          <span>{success}</span>
-        </div>
-      )}
+      <SuccessModal
+        isOpen={!!success}
+        message={success}
+        onClose={() => setSuccess(null)}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* Left Side Column: Forms for Creation */}
@@ -209,24 +221,32 @@ export default function Locations() {
             <CardContent>
               <form onSubmit={handleCreateWarehouse} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Warehouse Code*</label>
-                  <Input 
+                  <ValidatedInput 
+                    label="Warehouse Code"
                     type="text" 
                     className="bg-white border-zinc-200 text-zinc-800 text-xs h-9"
                     placeholder="e.g., WH-03" 
                     value={whCode} 
-                    onChange={e => setWhCode(e.target.value)}
+                    onChange={e => {
+                      setWhCode(e.target.value);
+                      if (whErrors.whCode) setWhErrors({ ...whErrors, whCode: '' });
+                    }}
+                    error={whErrors.whCode}
                     required
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Warehouse Name*</label>
-                  <Input 
+                  <ValidatedInput 
+                    label="Warehouse Name"
                     type="text" 
                     className="bg-white border-zinc-200 text-zinc-800 text-xs h-9"
                     placeholder="e.g., Dallas Storage" 
                     value={whName} 
-                    onChange={e => setWhName(e.target.value)}
+                    onChange={e => {
+                      setWhName(e.target.value);
+                      if (whErrors.whName) setWhErrors({ ...whErrors, whName: '' });
+                    }}
+                    error={whErrors.whName}
                     required
                   />
                 </div>
@@ -256,11 +276,16 @@ export default function Locations() {
             <CardContent>
               <form onSubmit={handleCreateBin} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Select Warehouse*</label>
+                  <label className="block text-sm font-medium text-zinc-500">
+                    Select Warehouse <span className="text-[#E11D48]">*</span>
+                  </label>
                   <select
-                    className="w-full p-2.5 h-9 rounded-md bg-white border border-zinc-200 text-zinc-800 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-950"
+                    className={`w-full p-2.5 h-10 rounded-md bg-white border text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${binErrors.selectedWhId ? 'border-[#E11D48] focus:ring-[#E11D48] text-[#E11D48]' : 'border-zinc-300 focus:ring-zinc-400 text-zinc-800'}`}
                     value={selectedWhId}
-                    onChange={e => setSelectedWhId(e.target.value)}
+                    onChange={e => {
+                      setSelectedWhId(e.target.value);
+                      if (binErrors.selectedWhId) setBinErrors({ ...binErrors, selectedWhId: '' });
+                    }}
                     required
                   >
                     <option value="">-- Choose Warehouse --</option>
@@ -270,15 +295,20 @@ export default function Locations() {
                       </option>
                     ))}
                   </select>
+                  {binErrors.selectedWhId && <span className="text-[#E11D48] text-xs mt-1 block">{binErrors.selectedWhId}</span>}
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Bin Coordinate Code*</label>
-                  <Input 
+                  <ValidatedInput 
+                    label="Bin Coordinate Code"
                     type="text" 
                     className="bg-white border-zinc-200 text-zinc-800 text-xs h-9"
                     placeholder="e.g., BIN-C02" 
                     value={binCode} 
-                    onChange={e => setBinCode(e.target.value)}
+                    onChange={e => {
+                      setBinCode(e.target.value);
+                      if (binErrors.binCode) setBinErrors({ ...binErrors, binCode: '' });
+                    }}
+                    error={binErrors.binCode}
                     required
                   />
                 </div>
@@ -305,9 +335,9 @@ export default function Locations() {
               </div>
               <div className="relative w-full sm:w-48">
                 <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-zinc-450" />
-                <Input
+                <input
                   type="text"
-                  className="pl-8 h-7.5 bg-white border-zinc-200 text-xs text-zinc-850 rounded-md focus-visible:ring-zinc-900"
+                  className="w-full pl-8 h-7.5 bg-white border border-zinc-200 text-xs text-zinc-850 rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-900"
                   placeholder="Search locations"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}

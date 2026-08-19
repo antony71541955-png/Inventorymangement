@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { SuccessModal } from "@/components/ui/SuccessModal";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 interface DeductedItem {
@@ -293,12 +294,15 @@ export default function ExcelDeduction() {
                 )}
 
                 {/* Success Result */}
-                {deductSuccessMsg && deductVoucher && (
+                <SuccessModal
+                  isOpen={!!(deductSuccessMsg && deductVoucher)}
+                  message={deductSuccessMsg}
+                  onClose={() => clearDeductResults()}
+                >
                   <div className="space-y-4">
                     <div className="flex items-start gap-2.5 p-3.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold">
                       <CheckCircle size={15} className="mt-0.5 shrink-0 text-emerald-500" />
                       <div>
-                        <strong className="font-bold">{deductSuccessMsg}</strong>
                         <div className="text-[10px] mt-0.5 font-medium leading-normal">
                           Posted Voucher: <code>{deductVoucher}</code>. Action recorded under <strong>{user?.full_name}</strong>.
                         </div>
@@ -322,7 +326,7 @@ export default function ExcelDeduction() {
                       </div>
                     </div>
                   </div>
-                )}
+                </SuccessModal>
               </CardContent>
             </Card>
           </div>
@@ -457,12 +461,15 @@ export default function ExcelDeduction() {
                 )}
 
                 {/* Success report summary */}
-                {reconSuccessMsg && reconVoucher && (
+                <SuccessModal
+                  isOpen={!!(reconSuccessMsg && reconVoucher)}
+                  message={reconSuccessMsg}
+                  onClose={() => clearReconResults()}
+                >
                   <div className="space-y-4">
                     <div className="flex items-start gap-2.5 p-3.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold">
                       <CheckCircle size={15} className="mt-0.5 shrink-0 text-emerald-500" />
                       <div>
-                        <strong className="font-bold">{reconSuccessMsg}</strong>
                         <div className="text-[10px] mt-0.5 font-medium leading-normal">
                           Posted Reconciliation Voucher: <code>{reconVoucher}</code>. Logs recorded under user profile <strong>{user?.full_name}</strong>.
                         </div>
@@ -521,7 +528,7 @@ export default function ExcelDeduction() {
                       )}
                     </div>
                   </div>
-                )}
+                </SuccessModal>
               </CardContent>
             </Card>
           </div>

@@ -20,10 +20,12 @@ import {
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/ValidatedInput";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SuccessModal } from "@/components/ui/SuccessModal";
 
 interface LocationBreakdown {
   warehouse: string;
@@ -86,6 +88,7 @@ export default function Inventory() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [formLoading, setFormLoading] = useState(false);
 
   // Row selection states for location and batch dropdowns
@@ -137,6 +140,7 @@ export default function Inventory() {
     setBinLocation('');
     setInitialQty('0');
     setImageFile(null);
+    setErrors({});
     setIsEditing(true);
     setIsAddModalOpen(true);
   };
@@ -156,6 +160,7 @@ export default function Inventory() {
     setBinLocation('');
     setInitialQty('0');
     setImageFile(null);
+    setErrors({});
     setIsEditing(false);
     setIsAddModalOpen(true);
   };
@@ -365,26 +370,23 @@ export default function Inventory() {
     e.preventDefault();
     setFormError(null);
     setFormSuccess(null);
-    setFormLoading(true);
-
-    if (!partNumber.trim() || !itemName.trim()) {
-      setFormError('Part Number and Item Name are mandatory fields.');
-      setFormLoading(false);
+    
+    const newErrors: Record<string, string> = {};
+    if (!partNumber.trim()) newErrors.partNumber = "Part Number is required";
+    if (!itemName.trim()) newErrors.itemName = "Item Name is required";
+    
+    if (itemType === 'food') {
+      if (!batchNo.trim()) newErrors.batchNo = "Batch No is required";
+      if (!expiry.trim()) newErrors.expiry = "Expiry Date is required";
+    }
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
       return;
     }
-
-    if (itemType === 'food') {
-      if (!batchNo.trim()) {
-        setFormError('Batch No is a mandatory field for food items.');
-        setFormLoading(false);
-        return;
-      }
-      if (!expiry.trim()) {
-        setFormError('Expiry Date is a mandatory field for food items.');
-        setFormLoading(false);
-        return;
-      }
-    }
+    
+    setErrors({});
+    setFormLoading(true);
 
     try {
       const formData = new FormData();
@@ -494,8 +496,14 @@ export default function Inventory() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Title Header */}
+    <div className="space-y-6 max-w-7xl mx-auto h-[calc(100vh-80px)] flex flex-col">
+      <SuccessModal
+        isOpen={!!formSuccess}
+        message={formSuccess}
+        onClose={() => setFormSuccess(null)}
+      />
+
+      {/* Header section */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Inventory</h1>
         <div className="flex items-center gap-2">
@@ -932,25 +940,33 @@ export default function Inventory() {
             {/* Row 1: Part Number, Item Name, Item Type, Selling Price */}
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Part Number (SKU)*</label>
-                <Input
+                <ValidatedInput
+                  label="Part Number (SKU)"
                   type="text"
                   className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                   placeholder="e.g., P-100"
                   value={partNumber}
-                  onChange={(e) => setPartNumber(e.target.value)}
+                  onChange={(e) => {
+                    setPartNumber(e.target.value);
+                    if (errors.partNumber) setErrors({ ...errors, partNumber: '' });
+                  }}
+                  error={errors.partNumber}
                   required
                   disabled={isEditing}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-455 uppercase tracking-wider">Item Name*</label>
-                <Input
+                <ValidatedInput
+                  label="Item Name"
                   type="text"
                   className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                   placeholder="e.g., Metal Bearing"
                   value={itemName}
-                  onChange={(e) => setItemName(e.target.value)}
+                  onChange={(e) => {
+                    setItemName(e.target.value);
+                    if (errors.itemName) setErrors({ ...errors, itemName: '' });
+                  }}
+                  error={errors.itemName}
                   required
                 />
               </div>
@@ -1036,23 +1052,31 @@ export default function Inventory() {
             {itemType === 'food' && (
               <div className="grid grid-cols-2 gap-4 border border-zinc-100 bg-zinc-50/50 p-2.5 rounded-lg">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Batch No*</label>
-                  <Input
+                  <ValidatedInput
+                    label="Batch No"
                     type="text"
                     className="bg-white border-zinc-200 text-zinc-800 text-xs h-8"
                     placeholder="e.g., B-2024"
                     value={batchNo}
-                    onChange={(e) => setBatchNo(e.target.value)}
+                    onChange={(e) => {
+                      setBatchNo(e.target.value);
+                      if (errors.batchNo) setErrors({ ...errors, batchNo: '' });
+                    }}
+                    error={errors.batchNo}
                     required={itemType === 'food'}
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Expiry*</label>
-                  <Input
+                  <ValidatedInput
+                    label="Expiry Date"
                     type="date"
                     className="bg-white border-zinc-200 text-zinc-850 text-xs h-8"
                     value={expiry}
-                    onChange={(e) => setExpiry(e.target.value)}
+                    onChange={(e) => {
+                      setExpiry(e.target.value);
+                      if (errors.expiry) setErrors({ ...errors, expiry: '' });
+                    }}
+                    error={errors.expiry}
                     required={itemType === 'food'}
                   />
                 </div>

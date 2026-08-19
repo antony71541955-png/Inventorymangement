@@ -3,6 +3,7 @@ import { Search, Plus, Trash2, Check, X, AlertCircle, Edit, Calendar, Package } 
 import { API_URL, useAuth } from '../App';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { SuccessModal } from "@/components/ui/SuccessModal";
 
 interface Customer {
   id: number;
@@ -798,12 +799,11 @@ export default function TransferRequest() {
                   {submitError}
                 </div>
               )}
-              {submitSuccess && (
-                <div className="flex items-center gap-1.5 text-sm text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-md">
-                  <Check size={14} />
-                  {submitSuccess}
-                </div>
-              )}
+              <SuccessModal
+                isOpen={!!submitSuccess}
+                message={submitSuccess}
+                onClose={() => setSubmitSuccess(null)}
+              />
               
               {editingPicklistId && editingPicklistTransferStatus === 'Transfer Decisions Made' && editingPicklistOverallStatus === 'Pending' && (
                 <div className="flex items-center gap-2 mr-4 border-r border-zinc-200 pr-4">

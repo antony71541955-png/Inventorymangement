@@ -13,10 +13,11 @@ import {
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/ValidatedInput";
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SuccessModal } from "@/components/ui/SuccessModal";
 
 interface UserItem {
   id: number;
@@ -58,9 +59,9 @@ export default function Users() {
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [menuAccess, setMenuAccess] = useState<string[]>(AVAILABLE_MENUS.map(m => m.path));
   
-  // Feedback alerts
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState(false);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<UserItem | null>(null);
 
@@ -102,6 +103,18 @@ export default function Users() {
     e.preventDefault();
     setError(null);
     setSuccess(null);
+    
+    const newErrors: Record<string, string> = {};
+    if (!fullName.trim()) newErrors.fullName = "Full Name is required";
+    if (!username.trim()) newErrors.username = "Username is required";
+    if (!editingUserId && !password) newErrors.password = "Password is required";
+    
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+    
+    setErrors({});
     setActionLoading(true);
 
     try {
@@ -162,6 +175,7 @@ export default function Users() {
     }
     setError(null);
     setSuccess(null);
+    setErrors({});
   };
   
   const cancelEdit = () => {
@@ -172,6 +186,7 @@ export default function Users() {
     setRole('operator');
     setWarehouseCode('');
     setMenuAccess(AVAILABLE_MENUS.map(m => m.path));
+    setErrors({});
   };
 
   const executeDeleteUser = async (userId: number, uName: string) => {
@@ -213,12 +228,11 @@ export default function Users() {
         </div>
       )}
 
-      {success && (
-        <div className="bg-emerald-50 border border-emerald-250 text-emerald-700 text-xs font-semibold p-4 rounded-xl flex items-center gap-3 shadow-sm">
-          <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-          <span>{success}</span>
-        </div>
-      )}
+      <SuccessModal
+        isOpen={!!success}
+        message={success}
+        onClose={() => setSuccess(null)}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Form Column */}
@@ -240,40 +254,52 @@ export default function Users() {
             <CardContent>
               <form onSubmit={handleSubmitUser} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Full Name</label>
-                  <Input
+                  <ValidatedInput
                     id="user-fullname-input"
+                    label="Full Name"
                     type="text"
                     placeholder="e.g. John Doe"
                     className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-zinc-400"
                     value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
+                    onChange={(e) => {
+                      setFullName(e.target.value);
+                      if (errors.fullName) setErrors({ ...errors, fullName: '' });
+                    }}
+                    error={errors.fullName}
                     required
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Username</label>
-                  <Input
+                  <ValidatedInput
                     id="user-username-input"
+                    label="Username"
                     type="text"
                     placeholder="e.g. johndoe"
                     className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-zinc-400"
                     value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    onChange={(e) => {
+                      setUsername(e.target.value);
+                      if (errors.username) setErrors({ ...errors, username: '' });
+                    }}
+                    error={errors.username}
                     required
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Password</label>
-                  <Input
+                  <ValidatedInput
                     id="user-password-input"
+                    label="Password"
                     type="password"
                     placeholder={editingUserId ? "•••••••• (Leave blank to keep current)" : "••••••••"}
                     className="bg-zinc-50 border-zinc-200 text-zinc-900 focus-visible:ring-zinc-400"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (errors.password) setErrors({ ...errors, password: '' });
+                    }}
+                    error={errors.password}
                     required={!editingUserId}
                   />
                 </div>

@@ -16,10 +16,12 @@ import {
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValidatedInput } from "@/components/ui/ValidatedInput";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { SuccessModal } from "@/components/ui/SuccessModal";
 import { cn } from "@/lib/utils";
 
 interface LocationItem {
@@ -209,6 +211,7 @@ export default function StockTransfer() {
   // Status states
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [posting, setPosting] = useState(false);
 
   // Master locations pool
@@ -491,6 +494,8 @@ export default function StockTransfer() {
 
     // Validation
     const qtyMap: Record<number, number> = {};
+    let hasErrors = false;
+    const newErrors: Record<string, string> = {};
     
     for (let i = 0; i < destinations.length; i++) {
       const dest = destinations[i];
@@ -503,25 +508,29 @@ export default function StockTransfer() {
       
       const qty = parseInt(dest.qtyToTransfer) || 0;
       if (qty <= 0) {
-        setError(`Transfer quantity must be greater than 0 for destination ${i + 1}.`);
-        setPosting(false);
-        return;
+        newErrors[`qty_${i}`] = `Must be > 0`;
+        hasErrors = true;
       }
       if (!dest.toWarehouse.trim() || !dest.toBin.trim()) {
         setError(`Destination warehouse and bin are mandatory for destination ${i + 1}.`);
-        setPosting(false);
-        return;
+        hasErrors = true;
       }
       
       const sourceItem = itemsPool[dest.sourceItemIndex as number];
       if (sourceItem.warehouse === dest.toWarehouse.trim() && sourceItem.bin_location === dest.toBin.trim()) {
         setError(`Destination location cannot be identical to the source location for destination ${i + 1}.`);
-        setPosting(false);
-        return;
+        hasErrors = true;
       }
       
       qtyMap[dest.sourceItemIndex as number] = (qtyMap[dest.sourceItemIndex as number] || 0) + qty;
     }
+
+    if (hasErrors) {
+      setErrors(newErrors);
+      setPosting(false);
+      return;
+    }
+    setErrors({});
 
     for (const [indexStr, totalQty] of Object.entries(qtyMap)) {
       const idx = parseInt(indexStr);
@@ -622,11 +631,11 @@ export default function StockTransfer() {
               </div>
             )}
 
-            {success && (
-              <div className="bg-emerald-50 border border-emerald-100 text-emerald-600 text-xs p-3.5 rounded-lg">
-                <span>{success}</span>
-              </div>
-            )}
+            <SuccessModal
+              isOpen={!!success}
+              message={success}
+              onClose={() => setSuccess(null)}
+            />
 
             <form onSubmit={handlePostTransfer} className="space-y-4.5">
               <div className="grid grid-cols-2 gap-4">
@@ -733,20 +742,24 @@ export default function StockTransfer() {
 
                       <div className="grid grid-cols-3 gap-3">
                         <div className="space-y-1 col-span-1">
-                          <label className="text-[9px] font-bold text-zinc-455 uppercase tracking-wider">Qty*</label>
-                          <Input
+                          <ValidatedInput
+                            label="Qty"
                             type="number"
                             className="bg-white border-zinc-200 text-zinc-800 focus-visible:ring-zinc-900 text-xs h-9"
                             min={1}
                             max={dest.sourceItemIndex !== '' ? itemsPool[dest.sourceItemIndex as number].quantity : undefined}
                             value={dest.qtyToTransfer}
-                            onChange={(e) => updateDestination(index, 'qtyToTransfer', e.target.value)}
+                            onChange={(e) => {
+                              updateDestination(index, 'qtyToTransfer', e.target.value);
+                              if (errors[`qty_${index}`]) setErrors({ ...errors, [`qty_${index}`]: '' });
+                            }}
+                            error={errors[`qty_${index}`]}
                             required
                           />
                         </div>
                         <div className="space-y-1 col-span-2">
-                          <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Remarks</label>
-                          <Input
+                          <ValidatedInput
+                            label="Remarks"
                             type="text"
                             className="bg-white border-zinc-200 text-zinc-800 focus-visible:ring-zinc-900 text-xs h-9"
                             value={dest.remarks}

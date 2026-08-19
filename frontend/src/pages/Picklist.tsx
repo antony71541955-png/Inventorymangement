@@ -3,6 +3,8 @@ import { Search, Plus, Trash2, Check, X, FileText, Download, CheckCircle, Packag
 import { API_URL, useAuth } from '../App';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ValidatedInput } from "@/components/ui/ValidatedInput";
+import { SuccessModal } from "@/components/ui/SuccessModal";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import logo from '../assets/logo.png';
@@ -28,6 +30,7 @@ interface PicklistData {
   id: number;
   customer_id: number;
   customer_name: string;
+  invoice_number: string;
   status: string;
   created_at: string;
 }
@@ -88,7 +91,21 @@ export default function Picklist() {
   
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [importedRequestId, setImportedRequestId] = useState<number | null>(null);
+
+  const formatDateTime = (dateStr: string) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    const day = d.getDate().toString().padStart(2, '0');
+    const month = d.toLocaleString('en-GB', { month: 'short' });
+    const year = d.getFullYear();
+    const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).toLowerCase();
+    return `${day}-${month}-${year} ${time}`;
+  };
   
   useEffect(() => {
     fetchCustomers();
@@ -215,6 +232,7 @@ export default function Picklist() {
         }
         
         setSelectedItems(importedItems);
+        setImportedRequestId(request.id);
         setActiveTab('CREATE');
       }
     } catch (e) {
@@ -224,7 +242,9 @@ export default function Picklist() {
   };
 
   const handleCreatePicklist = async () => {
+    const newErrors: Record<string, string> = {};
     if (!selectedCustomer) return alert("Please select a customer.");
+    if (!invoiceNumber.trim()) newErrors.invoiceNumber = "Invoice Number is required";
     if (selectedItems.length === 0) return alert("Please select at least one item.");
     
     // Validate
@@ -235,10 +255,18 @@ export default function Picklist() {
       }
     }
 
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setErrors({});
     setIsSubmitting(true);
     
     const payload = {
       customer_id: selectedCustomer.id,
+      invoice_number: invoiceNumber.trim(),
+      transfer_request_id: importedRequestId,
       items: selectedItems.map(item => {
         const loc = item.locations[item.selectedLocationIndex];
         return {
@@ -262,9 +290,12 @@ export default function Picklist() {
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        alert("Picklist created successfully!");
+        setShowSuccessModal(true);
         setSelectedCustomer(null);
+        setInvoiceNumber('');
+        setErrors({});
         setSelectedItems([]);
+        setImportedRequestId(null);
         setActiveTab('LIST');
       } else {
         const err = await res.json();
@@ -426,6 +457,7 @@ export default function Picklist() {
               <tr>
                 <th className="px-6 py-4">ID</th>
                 <th className="px-6 py-4">Customer</th>
+                <th className="px-6 py-4">Invoice No.</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Created Date</th>
                 <th className="px-6 py-4 text-right">Actions</th>
@@ -436,12 +468,13 @@ export default function Picklist() {
                 <tr key={pl.id} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50/50">
                   <td className="px-6 py-4 font-medium text-zinc-900">#{pl.id}</td>
                   <td className="px-6 py-4">{pl.customer_name}</td>
+                  <td className="px-6 py-4 font-medium text-indigo-600">{pl.invoice_number}</td>
                   <td className="px-6 py-4">
                     <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-1 rounded-full">
                       {pl.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-zinc-500">{new Date(pl.created_at).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-zinc-500">{formatDateTime(pl.created_at)}</td>
                   <td className="px-6 py-4 text-right">
                     <Button 
                       variant="outline"
@@ -455,7 +488,7 @@ export default function Picklist() {
               ))}
               {picklists.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-zinc-500">
+                  <td colSpan={6} className="px-6 py-8 text-center text-zinc-500">
                     No picklists found.
                   </td>
                 </tr>
@@ -487,7 +520,7 @@ export default function Picklist() {
                       <CheckCircle size={12} /> {req.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-zinc-500">{new Date(req.created_at).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-zinc-500">{formatDateTime(req.created_at)}</td>
                   <td className="px-6 py-4 text-right">
                     <Button 
                       onClick={() => handleImportApprovedRequest(req)}
@@ -513,7 +546,7 @@ export default function Picklist() {
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-xl shadow-sm border border-zinc-200">
             <h2 className="text-lg font-semibold text-zinc-800 mb-4">Customer Details</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-medium text-zinc-700 mb-1.5">Customer</label>
                 {selectedCustomer ? (
@@ -552,6 +585,19 @@ export default function Picklist() {
                     )}
                   </div>
                 )}
+              </div>
+              <div>
+                <ValidatedInput
+                  label="Invoice Number"
+                  required
+                  placeholder="Enter invoice number..."
+                  value={invoiceNumber}
+                  onChange={(e) => {
+                    setInvoiceNumber(e.target.value);
+                    if (errors.invoiceNumber) setErrors({ ...errors, invoiceNumber: '' });
+                  }}
+                  error={errors.invoiceNumber}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-700 mb-1.5">Warehouse</label>
@@ -684,6 +730,12 @@ export default function Picklist() {
           </div>
         </div>
       )}
+      
+      <SuccessModal 
+        isOpen={showSuccessModal} 
+        onClose={() => setShowSuccessModal(false)} 
+        message="Picklist created successfully!" 
+      />
     </div>
   );
 }
