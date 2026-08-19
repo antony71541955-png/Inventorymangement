@@ -208,6 +208,7 @@ def init_db():
             batch_no TEXT,
             expiry TEXT,
             quantity INTEGER NOT NULL,
+            qc_verified BOOLEAN DEFAULT 0,
             FOREIGN KEY(dispatch_picklist_id) REFERENCES dispatch_picklists(id) ON DELETE CASCADE
         )
     ''')
@@ -260,6 +261,12 @@ def init_db():
         c.execute("ALTER TABLE dispatch_picklists ADD COLUMN qc_approved_by TEXT")
     if "qc_approved_at" not in dp_columns:
         c.execute("ALTER TABLE dispatch_picklists ADD COLUMN qc_approved_at TIMESTAMP")
+
+    # Ensure columns exist in dispatch_picklist_items
+    c.execute("PRAGMA table_info(dispatch_picklist_items)")
+    dpi_columns = [row[1] for row in c.fetchall()]
+    if "qc_verified" not in dpi_columns:
+        c.execute("ALTER TABLE dispatch_picklist_items ADD COLUMN qc_verified BOOLEAN DEFAULT 0")
 
     # Ensure columns exist in users
     c.execute("PRAGMA table_info(users)")
