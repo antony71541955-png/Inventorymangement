@@ -5,6 +5,24 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import logo from '../assets/logo.png';
+
+const getBase64ImageFromURL = (url: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = (error) => reject(error);
+    img.src = url;
+  });
+};
 
 interface PicklistData {
   id: number;
@@ -268,21 +286,47 @@ export default function Picklist() {
       const data = await res.json();
       
       const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+      const pageHeight = doc.internal.pageSize.height;
       
-      // Header
-      doc.setFontSize(20);
-      doc.text(`Picklist #${data.id}`, 14, 22);
+      // Top Green Bar
+      doc.setFillColor(0, 139, 56);
+      doc.rect(0, 0, pageWidth, 6, 'F');
       
-      doc.setFontSize(12);
-      doc.text(`Customer: ${data.customer_name}`, 14, 32);
-      doc.text(`Date: ${new Date(data.created_at).toLocaleDateString()}`, 14, 40);
-      doc.text(`Status: ${data.status}`, 14, 48);
+      // Load and add logo
+      try {
+        const logoBase64 = await getBase64ImageFromURL(logo);
+        // Add logo (x, y, w, h)
+        doc.addImage(logoBase64, 'PNG', 14, 12, 35, 12);
+      } catch (err) {
+        console.error("Failed to load logo for PDF", err);
+      }
+      
+      // Right Side Header (Picklist NO, Date)
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(50, 50, 50);
+      doc.text("PICKLIST NO :", pageWidth - 45, 18, { align: 'right' });
+      doc.text("Date :", pageWidth - 45, 24, { align: 'right' });
+      
+      doc.setFont('helvetica', 'normal');
+      doc.text(`PL-${data.id.toString().padStart(3, '0')}`, pageWidth - 14, 18, { align: 'right' });
+      doc.text(new Date(data.created_at).toLocaleDateString(), pageWidth - 14, 24, { align: 'right' });
+      
+      // Left Side Details (Customer)
+      doc.setFont('helvetica', 'bold');
+      doc.text("Customer", 14, 34);
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.customer_name, 14, 40);
+      if (data.status) {
+        doc.text(`Status: ${data.status}`, 14, 45);
+      }
       
       // Table
-      const tableData = data.items.map((item: any) => [
-        item.part_number,
-        item.item_name,
-        item.warehouse,
+      const tableData = data.items.map((item: any, index: number) => [
+        (index + 1).toString(),
+        item.item_name || item.part_number,
+        item.warehouse || '-',
         item.bin_location || '-',
         item.batch_no || '-',
         item.expiry || '-',
@@ -290,12 +334,46 @@ export default function Picklist() {
       ]);
       
       autoTable(doc, {
-        startY: 55,
-        head: [['Part No.', 'Item Name', 'Warehouse', 'Bin', 'Batch No.', 'Expiry', 'Quantity']],
+        startY: 52,
+        head: [['Sl.', 'Description', 'Warehouse', 'Bin', 'Batch No.', 'Expiry', 'Qty']],
         body: tableData,
         theme: 'grid',
-        headStyles: { fillColor: [79, 70, 229] } // Indigo 600
+        headStyles: { fillColor: [235, 241, 130], textColor: [26, 145, 68] },
+        styles: { fontSize: 9 }
       });
+      
+      const finalY = (doc as any).lastAutoTable.finalY || 55;
+      const totalQty = data.items.reduce((sum: number, item: any) => sum + item.quantity, 0);
+      
+      // Total Section
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Total Items", pageWidth - 50, finalY + 12, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      doc.text(data.items.length.toString(), pageWidth - 16, finalY + 12, { align: 'right' });
+      
+      // Total Quantity banner (matches "Balance Due" style)
+      doc.setFillColor(0, 139, 56);
+      doc.roundedRect(pageWidth - 85, finalY + 16, 71, 8, 3, 3, 'F');
+      doc.setFillColor(235, 241, 130);
+      doc.rect(pageWidth - 45, finalY + 16, 31, 8, 'F'); // cover right side of rounded rect for split color
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.text("Total Dispatched", pageWidth - 48, finalY + 21.5, { align: 'right' });
+      
+      doc.setTextColor(0, 139, 56);
+      doc.text(totalQty.toString(), pageWidth - 16, finalY + 21.5, { align: 'right' });
+      
+      // Signature Area
+      doc.setTextColor(0, 0, 0);
+      doc.setDrawColor(150, 150, 150);
+      doc.line(pageWidth - 65, finalY + 55, pageWidth - 15, finalY + 55);
+      doc.text("Authorized Signatory", pageWidth - 40, finalY + 60, { align: 'center' });
+      
+      // Bottom Green Bar
+      doc.setFillColor(0, 139, 56);
+      doc.rect(0, pageHeight - 6, pageWidth, 6, 'F');
       
       doc.save(`Picklist_${data.id}.pdf`);
       

@@ -17,7 +17,9 @@ import { Link } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Chart from 'react-apexcharts';
+import * as XLSX from 'xlsx';
 
 interface StockAlert {
   part_number: string;
@@ -54,6 +56,52 @@ export default function Dashboard() {
   const [dateRange, setDateRange] = useState('6M');
   const [selectedWh, setSelectedWh] = useState('');
   const [allWarehouses, setAllWarehouses] = useState<{id: number, code: string, name: string}[]>([]);
+  
+  // Modal State
+  const [selectedWarehouseForModal, setSelectedWarehouseForModal] = useState<string | null>(null);
+  const [warehouseModalData, setWarehouseModalData] = useState<any[]>([]);
+  const [loadingModalData, setLoadingModalData] = useState(false);
+
+  useEffect(() => {
+    if (!selectedWarehouseForModal) {
+      setWarehouseModalData([]);
+      return;
+    }
+    
+    const fetchModalData = async () => {
+      setLoadingModalData(true);
+      try {
+        const res = await fetch(`${API_URL}/api/reports/stock?group_by=item&warehouse=${selectedWarehouseForModal}`);
+        if (res.ok) {
+          const data = await res.json();
+          setWarehouseModalData(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.error("Failed to fetch warehouse details for modal", err);
+      } finally {
+        setLoadingModalData(false);
+      }
+    };
+    
+    fetchModalData();
+  }, [selectedWarehouseForModal]);
+
+  const handleExportExcel = () => {
+    if (!warehouseModalData.length) return;
+    
+    const exportData = warehouseModalData.map(item => ({
+      'Part Number': item.part_number,
+      'Item Name': item.item_name || '',
+      'Category': item.category || '',
+      'Total Quantity': item.total_quantity
+    }));
+    
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+    
+    XLSX.writeFile(wb, `Inventory_${selectedWarehouseForModal}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -118,7 +166,15 @@ export default function Dashboard() {
       type: 'bar',
       toolbar: { show: false },
       fontFamily: 'inherit',
-      parentHeightOffset: 0
+      parentHeightOffset: 0,
+      events: {
+        dataPointSelection: (event: any, chartContext: any, config: any) => {
+          const clickedWh = whDist[config.dataPointIndex]?.warehouse;
+          if (clickedWh) {
+            setSelectedWarehouseForModal(clickedWh);
+          }
+        }
+      }
     },
     colors: ['#00E396', '#008FFB', '#FEB019', '#FF4560', '#775DD0'],
     plotOptions: {
@@ -442,6 +498,55 @@ export default function Dashboard() {
           </div>
         </CardContent>
       </Card>
+      
+      {/* WAREHOUSE INVENTORY MODAL */}
+      <Dialog open={!!selectedWarehouseForModal} onOpenChange={(open) => !open && setSelectedWarehouseForModal(null)}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-4 border-b border-zinc-100 bg-zinc-50/50 flex flex-row items-center justify-between">
+            <DialogTitle className="text-xl font-bold text-zinc-800">
+              Inventory Detail - {selectedWarehouseForModal}
+            </DialogTitle>
+            <Button 
+              onClick={handleExportExcel} 
+              disabled={loadingModalData || warehouseModalData.length === 0}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm h-9"
+            >
+              Export as Excel
+            </Button>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto p-6 bg-white">
+            {loadingModalData ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-zinc-400" />
+                <span className="text-sm text-zinc-500">Loading stock data...</span>
+              </div>
+            ) : warehouseModalData.length === 0 ? (
+              <div className="text-center py-12 text-zinc-500 text-sm">No inventory found for this warehouse.</div>
+            ) : (
+              <table className="w-full text-sm text-left border border-zinc-200 rounded-lg overflow-hidden">
+                <thead className="bg-zinc-50 text-zinc-600 font-semibold border-b border-zinc-200 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 border-r border-zinc-100">Part Number</th>
+                    <th className="px-4 py-3 border-r border-zinc-100">Item Name</th>
+                    <th className="px-4 py-3 border-r border-zinc-100">Category</th>
+                    <th className="px-4 py-3 text-right">Total Quantity</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200">
+                  {warehouseModalData.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-zinc-50/50">
+                      <td className="px-4 py-3 border-r border-zinc-100 font-medium text-zinc-900">{item.part_number}</td>
+                      <td className="px-4 py-3 border-r border-zinc-100 text-zinc-600">{item.item_name}</td>
+                      <td className="px-4 py-3 border-r border-zinc-100 text-zinc-600">{item.category || '-'}</td>
+                      <td className="px-4 py-3 text-right font-bold text-zinc-900">{item.total_quantity}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       
     </div>
   );
