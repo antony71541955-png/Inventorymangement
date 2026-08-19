@@ -91,7 +91,6 @@ export default function Picklist() {
   
   const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
   
-  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -244,7 +243,6 @@ export default function Picklist() {
   const handleCreatePicklist = async () => {
     const newErrors: Record<string, string> = {};
     if (!selectedCustomer) return alert("Please select a customer.");
-    if (!invoiceNumber.trim()) newErrors.invoiceNumber = "Invoice Number is required";
     if (selectedItems.length === 0) return alert("Please select at least one item.");
     
     // Validate
@@ -265,7 +263,7 @@ export default function Picklist() {
     
     const payload = {
       customer_id: selectedCustomer.id,
-      invoice_number: invoiceNumber.trim(),
+      invoice_number: '',
       transfer_request_id: importedRequestId,
       items: selectedItems.map(item => {
         const loc = item.locations[item.selectedLocationIndex];
@@ -292,7 +290,6 @@ export default function Picklist() {
       if (res.ok) {
         setShowSuccessModal(true);
         setSelectedCustomer(null);
-        setInvoiceNumber('');
         setErrors({});
         setSelectedItems([]);
         setImportedRequestId(null);
@@ -457,7 +454,6 @@ export default function Picklist() {
               <tr>
                 <th className="px-6 py-4">ID</th>
                 <th className="px-6 py-4">Customer</th>
-                <th className="px-6 py-4">Invoice No.</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Created Date</th>
                 <th className="px-6 py-4 text-right">Actions</th>
@@ -468,7 +464,6 @@ export default function Picklist() {
                 <tr key={pl.id} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50/50">
                   <td className="px-6 py-4 font-medium text-zinc-900">#{pl.id}</td>
                   <td className="px-6 py-4">{pl.customer_name}</td>
-                  <td className="px-6 py-4 font-medium text-indigo-600">{pl.invoice_number}</td>
                   <td className="px-6 py-4">
                     <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-1 rounded-full">
                       {pl.status}
@@ -585,19 +580,6 @@ export default function Picklist() {
                     )}
                   </div>
                 )}
-              </div>
-              <div>
-                <ValidatedInput
-                  label="Invoice Number"
-                  required
-                  placeholder="Enter invoice number..."
-                  value={invoiceNumber}
-                  onChange={(e) => {
-                    setInvoiceNumber(e.target.value);
-                    if (errors.invoiceNumber) setErrors({ ...errors, invoiceNumber: '' });
-                  }}
-                  error={errors.invoiceNumber}
-                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-700 mb-1.5">Warehouse</label>

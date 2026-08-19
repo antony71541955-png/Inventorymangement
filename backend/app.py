@@ -2630,18 +2630,21 @@ def create_dispatch_picklist():
     data = request.json
     customer_id = data.get('customer_id')
     invoice_number = data.get('invoice_number')
+    if invoice_number == '':
+        invoice_number = None
     items = data.get('items', [])
     
-    if not customer_id or not items or not invoice_number:
-        return jsonify({"error": "Customer, invoice number, and items are required"}), 400
+    if not customer_id or not items:
+        return jsonify({"error": "Customer and items are required"}), 400
         
     conn = get_db_connection()
     c = conn.cursor()
 
-    c.execute("SELECT id FROM dispatch_picklists WHERE invoice_number = ?", (invoice_number,))
-    if c.fetchone():
-        conn.close()
-        return jsonify({"error": f"Invoice number '{invoice_number}' already exists"}), 400
+    if invoice_number:
+        c.execute("SELECT id FROM dispatch_picklists WHERE invoice_number = ?", (invoice_number,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({"error": f"Invoice number '{invoice_number}' already exists"}), 400
 
     try:
         c.execute("BEGIN TRANSACTION")
