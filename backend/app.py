@@ -2647,7 +2647,6 @@ def create_dispatch_picklist():
             return jsonify({"error": f"Invoice number '{invoice_number}' already exists"}), 400
 
     try:
-        c.execute("BEGIN TRANSACTION")
         c.execute("INSERT INTO dispatch_picklists (customer_id, invoice_number, status) VALUES (?, ?, 'Created')", (customer_id, invoice_number))
         picklist_id = c.lastrowid
         
@@ -2665,7 +2664,7 @@ def create_dispatch_picklist():
             stock = c.fetchone()
             
             if not stock or stock['quantity'] < qty:
-                c.execute("ROLLBACK")
+                conn.rollback()
                 conn.close()
                 return jsonify({"error": f"Insufficient stock for {part_number} in {warehouse} - {bin_location}"}), 400
                 
@@ -2683,10 +2682,9 @@ def create_dispatch_picklist():
         if transfer_request_id:
             c.execute("UPDATE picklists SET status = 'Dispatched' WHERE id = ?", (transfer_request_id,))
             
-        c.execute("COMMIT")
         conn.commit()
     except Exception as e:
-        c.execute("ROLLBACK")
+        conn.rollback()
         conn.close()
         return jsonify({"error": str(e)}), 500
         
