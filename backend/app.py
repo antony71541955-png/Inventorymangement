@@ -191,6 +191,8 @@ def init_db():
             invoice_number TEXT UNIQUE,
             status TEXT DEFAULT 'Created',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            qc_approved_by TEXT,
+            qc_approved_at TIMESTAMP,
             FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
         )
     ''')
@@ -254,6 +256,10 @@ def init_db():
     if "invoice_number" not in dp_columns:
         c.execute("ALTER TABLE dispatch_picklists ADD COLUMN invoice_number TEXT")
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dispatch_picklists_invoice ON dispatch_picklists(invoice_number) WHERE invoice_number IS NOT NULL")
+    if "qc_approved_by" not in dp_columns:
+        c.execute("ALTER TABLE dispatch_picklists ADD COLUMN qc_approved_by TEXT")
+    if "qc_approved_at" not in dp_columns:
+        c.execute("ALTER TABLE dispatch_picklists ADD COLUMN qc_approved_at TIMESTAMP")
 
     # Ensure columns exist in users
     c.execute("PRAGMA table_info(users)")
