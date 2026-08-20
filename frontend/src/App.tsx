@@ -190,28 +190,28 @@ function Layout() {
   const baseMenuItems = [
     { path: '/', name: 'Dashboard', icon: <LayoutDashboard size={16} /> },
     { path: '/inventory', name: 'Inventory', icon: <Boxes size={16} /> },
-    { path: '/transfer', name: 'Stock Transfer', icon: <RefreshCw size={16} /> },
-    { path: '/deduction', name: 'Excel Deduction', icon: <FileSpreadsheet size={16} /> },
-    { path: '/reports', name: 'Reports & Logs', icon: <BarChart3 size={16} /> },
-    { path: '/locations', name: 'Locations Setup', icon: <MapPin size={16} /> },
     { path: '/customers', name: 'Customers', icon: <UsersIcon size={16} /> },
+    { path: '/transfer', name: 'Stock Transfer', icon: <RefreshCw size={16} /> },
     { path: '/transfer-request', name: 'Transfer Request', icon: <ClipboardList size={16} /> },
     { path: '/picklist', name: 'Picklist', icon: <ClipboardList size={16} /> },
     { path: '/qc', name: 'Quality Check', icon: <CheckCircle size={16} /> },
+    { path: '/deduction', name: 'Excel Deduction', icon: <FileSpreadsheet size={16} /> },
+    { path: '/reports', name: 'Reports & Logs', icon: <BarChart3 size={16} /> },
+    { path: '/locations', name: 'Locations Setup', icon: <MapPin size={16} /> },
   ];
 
   const menuItems = user?.menu_access && Array.isArray(user.menu_access) && user.menu_access.length > 0 
     ? [
         ...baseMenuItems,
-        { path: '/users', name: 'User Management', icon: <User size={16} /> },
         { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> },
+        { path: '/users', name: 'User Management', icon: <User size={16} /> },
         { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },
         { path: '/bins', name: 'Bins', icon: <Boxes size={16} /> },
       ].filter(item => user.menu_access?.includes(item.path))
     : user?.role === 'superadmin' ? [
         ...baseMenuItems,
-        { path: '/users', name: 'User Management', icon: <User size={16} /> },
-        { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> }
+        { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> },
+        { path: '/users', name: 'User Management', icon: <User size={16} /> }
       ] : user?.role === 'warehouse_admin' ? [
         { path: '/', name: 'Dashboard', icon: <LayoutDashboard size={16} /> },
         { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },

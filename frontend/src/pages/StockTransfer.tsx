@@ -313,24 +313,45 @@ export default function StockTransfer() {
           
           setSelectedSourceItems(prev => {
             const newSelected = [...prev];
+            const addedIndices: number[] = [];
+            
             itemsPool.forEach((item, index) => {
               if (item.part_number.toLowerCase() === scannedPartNumber.toLowerCase()) {
                 foundAny = true;
                 if (!newSelected.includes(index)) {
                   newSelected.push(index);
-                  addedCount++;
+                  addedIndices.push(index);
                   if (!newWarehouse) newWarehouse = item.warehouse;
                 }
               }
             });
             
             setTimeout(() => {
-              if (addedCount > 0) {
+              if (addedIndices.length > 0) {
                 if (newWarehouse) {
                   // Only auto-set if it's empty. Since we can't reliably read sourceWarehouse here without making it a dependency, 
                   // we will just unconditionally set it using functional state update if it was empty.
                   setSourceWarehouse(prevWh => prevWh ? prevWh : newWarehouse);
                 }
+                
+                setDestinations(curr => {
+                  let newDestinations = [...curr];
+                  const hasEmpty = newDestinations.length === 1 && newDestinations[0].sourceItemIndex === '';
+                  if (hasEmpty) {
+                    newDestinations = [];
+                  }
+                  addedIndices.forEach(idx => {
+                    newDestinations.push({
+                      sourceItemIndex: idx,
+                      toWarehouse: '',
+                      toBin: '',
+                      qtyToTransfer: '1',
+                      remarks: 'Location stock transfer'
+                    });
+                  });
+                  return newDestinations;
+                });
+
                 setSuccess(`Barcode scanned: ${scannedPartNumber} selected.`);
                 setTimeout(() => setSuccess(null), 3000);
               } else if (!foundAny) {
@@ -428,15 +449,37 @@ export default function StockTransfer() {
     setSourceWarehouse(prev => prev ? prev : item.warehouse);
     
     setSelectedSourceItems(prev => {
-      if (prev.includes(index)) {
+      const isSelected = prev.includes(index);
+      
+      if (isSelected) {
+        // Remove item from selected
+        setDestinations(curr => {
+          const newDestinations = curr.filter(d => d.sourceItemIndex !== index);
+          if (newDestinations.length === 0) {
+            return [{ sourceItemIndex: '', toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }];
+          }
+          return newDestinations;
+        });
         return prev.filter(i => i !== index);
       } else {
+        // Add item to selected
+        setDestinations(curr => {
+          const hasEmpty = curr.length === 1 && curr[0].sourceItemIndex === '';
+          const newDest = { 
+            sourceItemIndex: index, 
+            toWarehouse: '', 
+            toBin: '', 
+            qtyToTransfer: '1', 
+            remarks: 'Location stock transfer' 
+          };
+          if (hasEmpty) {
+            return [newDest];
+          }
+          return [...curr, newDest];
+        });
         return [...prev, index];
       }
     });
-    setDestinations(prev => prev.map(d => 
-      d.sourceItemIndex === index ? { ...d, sourceItemIndex: '' } : d
-    ));
     setError(null);
   };
 
