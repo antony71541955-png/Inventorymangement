@@ -852,17 +852,12 @@ export default function Inventory() {
                         </div>
                       </>
                     )}
-                    <div className="grid grid-cols-2">
-                      <span className="text-zinc-500">Stock</span>
-                      <strong className="text-zinc-850 text-right">{selectedItem.total_quantity}</strong>
-                    </div>
-                    <div className="grid grid-cols-2">
-                      <span className="text-zinc-500">Processed</span>
-                      <strong className="text-zinc-850 text-right">5</strong>
-                    </div>
+                    
                     <div className="grid grid-cols-2">
                       <span className="text-zinc-500">Total</span>
-                      <strong className="text-zinc-850 text-right">{selectedItem.total_quantity + 5}</strong>
+                      <strong className="text-zinc-850 text-right">
+                        {selectedItem.locations?.reduce((sum, loc) => sum + loc.quantity, 0) || 0}
+                      </strong>
                     </div>
                     <div className="grid grid-cols-2 items-center">
                       <span className="text-zinc-500">Status</span>

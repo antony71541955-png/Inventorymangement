@@ -128,7 +128,7 @@ function SearchableMultiSelect({
   disabled = false,
   className
 }: {
-  options: { label: React.ReactNode; textValue: string; value: number }[];
+  options: { label: React.ReactNode; textValue: string; value: number; partNumber?: string }[];
   selectedValues: number[];
   onChange: (val: number) => void;
   placeholder?: string;
@@ -161,7 +161,31 @@ function SearchableMultiSelect({
             placeholder="Search items..." 
             className="h-9 text-xs" 
             value={search}
-            onValueChange={setSearch}
+            onValueChange={(val) => {
+              setSearch(val);
+              const term = val.trim().toLowerCase();
+              if (term) {
+                // If it's an exact match of a part number, automatically check it!
+                const exactMatch = options.find(opt => opt.partNumber?.toLowerCase() === term);
+                if (exactMatch) {
+                  onChange(exactMatch.value);
+                  setSearch('');
+                }
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const term = e.currentTarget.value.trim().toLowerCase();
+                if (term) {
+                  const match = options.find(opt => opt.textValue.toLowerCase().includes(term));
+                  if (match) {
+                    onChange(match.value);
+                    setSearch('');
+                    e.preventDefault();
+                  }
+                }
+              }
+            }}
           />
           <CommandList className="max-h-[300px]">
             <CommandEmpty className="text-xs py-2 text-center text-zinc-500">{emptyText}</CommandEmpty>
@@ -624,6 +648,7 @@ export default function StockTransfer() {
       </div>
     ),
     textValue: `${item.part_number} ${item.item_name} ${item.bin_location}`, // searchable text
+    partNumber: item.part_number,
     value: index
   }));
 
