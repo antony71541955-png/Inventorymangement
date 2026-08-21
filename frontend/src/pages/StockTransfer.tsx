@@ -139,6 +139,12 @@ function SearchableMultiSelect({
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
   
+  const filteredOptions = React.useMemo(() => {
+    if (!search.trim()) return options;
+    const term = search.trim().toLowerCase();
+    return options.filter(opt => opt.textValue.toLowerCase().includes(term));
+  }, [options, search]);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -156,7 +162,7 @@ function SearchableMultiSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command filter={(value, searchValue) => value.toLowerCase().includes(searchValue.trim().toLowerCase()) ? 1 : 0}>
+        <Command shouldFilter={false}>
           <CommandInput 
             placeholder="Search items..." 
             className="h-9 text-xs" 
@@ -194,7 +200,7 @@ function SearchableMultiSelect({
           <CommandList className="max-h-[300px]">
             <CommandEmpty className="text-xs py-2 text-center text-zinc-500">{emptyText}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => {
+              {filteredOptions.map((option) => {
                 const isSelected = selectedValues.includes(option.value);
                 return (
                   <CommandItem
