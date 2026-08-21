@@ -142,7 +142,7 @@ function SearchableMultiSelect({
   const filteredOptions = React.useMemo(() => {
     if (!search.trim()) return options;
     const term = search.trim().toLowerCase();
-    return options.filter(opt => opt.textValue.toLowerCase().includes(term));
+    return options.filter(opt => String(opt.textValue || '').toLowerCase().includes(term));
   }, [options, search]);
 
   return (
@@ -173,7 +173,7 @@ function SearchableMultiSelect({
               const term = val.trim().toLowerCase();
               if (term) {
                 // If it's an exact match of a part number, automatically check it!
-                const exactMatch = options.find(opt => opt.partNumber?.toLowerCase() === term);
+                const exactMatch = options.find(opt => String(opt.partNumber || '').toLowerCase() === term);
                 if (exactMatch) {
                   console.log("Exact match found, auto-selecting:", exactMatch.partNumber);
                   onChange(exactMatch.value);
@@ -186,7 +186,7 @@ function SearchableMultiSelect({
                 console.log("Scanner hit Enter! Current value is:", e.currentTarget.value);
                 const term = e.currentTarget.value.trim().toLowerCase();
                 if (term) {
-                  const match = options.find(opt => opt.textValue.toLowerCase().includes(term));
+                  const match = options.find(opt => String(opt.textValue || '').toLowerCase().includes(term));
                   if (match) {
                     console.log("Enter key matched:", match.textValue);
                     onChange(match.value);
