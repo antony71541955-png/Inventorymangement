@@ -140,8 +140,11 @@ function SearchableMultiSelect({
   const [search, setSearch] = React.useState('');
   
   const filteredOptions = React.useMemo(() => {
-    if (!search.trim()) return options;
-    const term = search.trim().toLowerCase();
+    let cleanSearch = search;
+    if (cleanSearch.includes(';')) cleanSearch = cleanSearch.split(';')[0];
+    
+    if (!cleanSearch.trim()) return options;
+    const term = cleanSearch.trim().toLowerCase();
     return options.filter(opt => String(opt.textValue || '').toLowerCase().includes(term));
   }, [options, search]);
 
@@ -169,8 +172,15 @@ function SearchableMultiSelect({
             value={search}
             onValueChange={(val) => {
               console.log("Scanner input changed to:", val);
-              setSearch(val);
-              const term = val.trim().toLowerCase();
+              
+              // Clean QR code suffixes like ";1"
+              let cleanVal = val;
+              if (cleanVal.includes(';')) {
+                 cleanVal = cleanVal.split(';')[0];
+              }
+              
+              setSearch(cleanVal);
+              const term = cleanVal.trim().toLowerCase();
               if (term) {
                 // If it's an exact match of a part number, automatically check it!
                 const exactMatch = options.find(opt => String(opt.partNumber || '').toLowerCase() === term);
@@ -184,9 +194,22 @@ function SearchableMultiSelect({
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 console.log("Scanner hit Enter! Current value is:", e.currentTarget.value);
-                const term = e.currentTarget.value.trim().toLowerCase();
+                
+                let cleanVal = e.currentTarget.value;
+                if (cleanVal.includes(';')) {
+                   cleanVal = cleanVal.split(';')[0];
+                }
+                
+                const term = cleanVal.trim().toLowerCase();
                 if (term) {
-                  const match = options.find(opt => String(opt.textValue || '').toLowerCase().includes(term));
+                  // Prioritize exact match on partNumber for 5-digit numbers
+                  let match = options.find(opt => String(opt.partNumber || '').toLowerCase() === term);
+                  
+                  // Fallback to searching the full text
+                  if (!match) {
+                     match = options.find(opt => String(opt.textValue || '').toLowerCase().includes(term));
+                  }
+                  
                   if (match) {
                     console.log("Enter key matched:", match.textValue);
                     onChange(match.value);
