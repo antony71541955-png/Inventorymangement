@@ -156,7 +156,7 @@ function SearchableMultiSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command filter={(value, searchValue) => value.toLowerCase().includes(searchValue.toLowerCase()) ? 1 : 0}>
+        <Command filter={(value, searchValue) => value.toLowerCase().includes(searchValue.trim().toLowerCase()) ? 1 : 0}>
           <CommandInput 
             placeholder="Search items..." 
             className="h-9 text-xs" 
