@@ -16,7 +16,8 @@ import {
   ChevronDown,
   Upload,
   Copy,
-  MoreHorizontal
+  MoreHorizontal,
+  Boxes
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -505,7 +506,10 @@ export default function Inventory() {
 
       {/* Header section */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Inventory</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent flex items-center gap-3">
+          <Boxes className="text-[#8F2C00]" size={32} />
+          Inventory
+        </h1>
         <div className="flex items-center gap-2">
           <input
             type="file"

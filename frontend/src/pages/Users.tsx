@@ -215,7 +215,10 @@ export default function Users() {
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">User Management</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent flex items-center gap-3">
+            <UserCog className="text-[#8F2C00]" size={32} />
+            User Management
+          </h1>
           <p className="text-zinc-500 text-sm mt-1.5 font-medium">Create and authorize operator and admin credentials for WMS access.</p>
         </div>
       </div>

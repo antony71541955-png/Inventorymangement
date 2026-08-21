@@ -12,8 +12,11 @@ import {
   Plus,
   Trash2,
   ChevronDown,
-  Check
+  Check,
+  ScanBarcode,
+  ArrowRightLeft
 } from 'lucide-react';
+import { ScannerModal } from "@/components/ui/ScannerModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatedInput } from "@/components/ui/ValidatedInput";
@@ -134,6 +137,8 @@ function SearchableMultiSelect({
   className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -151,8 +156,13 @@ function SearchableMultiSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command filter={(value, search) => value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0}>
-          <CommandInput placeholder="Search items..." className="h-9 text-xs" />
+        <Command filter={(value, searchValue) => value.toLowerCase().includes(searchValue.toLowerCase()) ? 1 : 0}>
+          <CommandInput 
+            placeholder="Search items..." 
+            className="h-9 text-xs" 
+            value={search}
+            onValueChange={setSearch}
+          />
           <CommandList className="max-h-[300px]">
             <CommandEmpty className="text-xs py-2 text-center text-zinc-500">{emptyText}</CommandEmpty>
             <CommandGroup>
@@ -164,6 +174,7 @@ function SearchableMultiSelect({
                     value={option.textValue}
                     onSelect={() => {
                       onChange(option.value);
+                      setSearch(''); // Clear search after selection to allow next scan
                     }}
                     className="text-xs py-2 cursor-pointer"
                   >
@@ -213,6 +224,11 @@ export default function StockTransfer() {
   const [success, setSuccess] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [posting, setPosting] = useState(false);
+
+  // Scanner States
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const [scannerSuccess, setScannerSuccess] = useState<string | null>(null);
 
   // Master locations pool
   const [locations, setLocations] = useState<Record<string, string[]>>({});
@@ -287,94 +303,63 @@ export default function StockTransfer() {
   };
 
   // Barcode Scanner Integration
-  useEffect(() => {
-    let barcodeBuffer = '';
-    let lastKeyTime = Date.now();
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-        return;
-      }
-
-      const currentTime = Date.now();
-      if (currentTime - lastKeyTime > 100) {
-        barcodeBuffer = '';
-      }
-      lastKeyTime = currentTime;
-
-      if (e.key === 'Enter') {
-        if (barcodeBuffer.length > 0) {
-          const scannedPartNumber = barcodeBuffer.trim();
+  const handleScan = (scannedPartNumber: string) => {
+    setScannerError(null);
+    setScannerSuccess(null);
+    
+    let foundAny = false;
+    let newWarehouse = '';
+    
+    setSelectedSourceItems(prev => {
+      const newSelected = [...prev];
+      const addedIndices: number[] = [];
+      
+      itemsPool.forEach((item, index) => {
+        if (item.part_number.toLowerCase() === scannedPartNumber.toLowerCase()) {
+          foundAny = true;
+          if (!newSelected.includes(index)) {
+            newSelected.push(index);
+            addedIndices.push(index);
+            if (!newWarehouse) newWarehouse = item.warehouse;
+          }
+        }
+      });
+      
+      setTimeout(() => {
+        if (addedIndices.length > 0) {
+          if (newWarehouse) {
+            setSourceWarehouse(prevWh => prevWh ? prevWh : newWarehouse);
+          }
           
-          let foundAny = false;
-          let addedCount = 0;
-          let newWarehouse = '';
-          
-          setSelectedSourceItems(prev => {
-            const newSelected = [...prev];
-            const addedIndices: number[] = [];
-            
-            itemsPool.forEach((item, index) => {
-              if (item.part_number.toLowerCase() === scannedPartNumber.toLowerCase()) {
-                foundAny = true;
-                if (!newSelected.includes(index)) {
-                  newSelected.push(index);
-                  addedIndices.push(index);
-                  if (!newWarehouse) newWarehouse = item.warehouse;
-                }
-              }
+          setDestinations(curr => {
+            let newDestinations = [...curr];
+            const hasEmpty = newDestinations.length === 1 && newDestinations[0].sourceItemIndex === '';
+            if (hasEmpty) {
+              newDestinations = [];
+            }
+            addedIndices.forEach(idx => {
+              newDestinations.push({
+                sourceItemIndex: idx,
+                toWarehouse: '',
+                toBin: '',
+                qtyToTransfer: '1',
+                remarks: 'Location stock transfer'
+              });
             });
-            
-            setTimeout(() => {
-              if (addedIndices.length > 0) {
-                if (newWarehouse) {
-                  // Only auto-set if it's empty. Since we can't reliably read sourceWarehouse here without making it a dependency, 
-                  // we will just unconditionally set it using functional state update if it was empty.
-                  setSourceWarehouse(prevWh => prevWh ? prevWh : newWarehouse);
-                }
-                
-                setDestinations(curr => {
-                  let newDestinations = [...curr];
-                  const hasEmpty = newDestinations.length === 1 && newDestinations[0].sourceItemIndex === '';
-                  if (hasEmpty) {
-                    newDestinations = [];
-                  }
-                  addedIndices.forEach(idx => {
-                    newDestinations.push({
-                      sourceItemIndex: idx,
-                      toWarehouse: '',
-                      toBin: '',
-                      qtyToTransfer: '1',
-                      remarks: 'Location stock transfer'
-                    });
-                  });
-                  return newDestinations;
-                });
-
-                setSuccess(`Barcode scanned: ${scannedPartNumber} selected.`);
-                setTimeout(() => setSuccess(null), 3000);
-              } else if (!foundAny) {
-                setError(`Barcode scanned: ${scannedPartNumber} not found in inventory.`);
-                setTimeout(() => setError(null), 3000);
-              }
-            }, 0);
-
-            return newSelected;
+            return newDestinations;
           });
 
-          barcodeBuffer = '';
+          setScannerSuccess(`Scanned: ${scannedPartNumber} selected.`);
+          setTimeout(() => setScannerSuccess(null), 3000);
+        } else if (!foundAny) {
+          setScannerError(`Barcode scanned: ${scannedPartNumber} not found.`);
+          setTimeout(() => setScannerError(null), 3000);
         }
-      } else if (e.key.length === 1) {
-        barcodeBuffer += e.key;
-      }
-    };
+      }, 0);
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [itemsPool]);
+      return newSelected;
+    });
+  };
 
   useEffect(() => {
     fetchHistory();
@@ -654,10 +639,28 @@ export default function StockTransfer() {
     <div className="space-y-8 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Stock Transfer Journal</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent flex items-center gap-3">
+            <ArrowRightLeft className="text-[#8F2C00]" size={32} />
+            Stock Transfer Journal
+          </h1>
           <p className="text-zinc-500 text-sm mt-1.5">Record item movements between warehouses and bins with chronological voucher audit logs.</p>
         </div>
+        <Button onClick={() => setIsScannerOpen(true)} className="gap-2 shrink-0">
+          <ScanBarcode size={16} /> Scan Item
+        </Button>
       </div>
+
+      <ScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => {
+          setIsScannerOpen(false);
+          setScannerError(null);
+          setScannerSuccess(null);
+        }}
+        onScan={handleScan}
+        error={scannerError}
+        successMessage={scannerSuccess}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* Post Transfer card (takes 2/3 width) */}

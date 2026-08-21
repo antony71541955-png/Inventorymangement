@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth, API_URL } from '../App';
-import { Boxes, Search, AlertCircle } from 'lucide-react';
+import { Boxes, Search, AlertCircle, Container } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from "@/components/ui/table";
@@ -81,7 +81,10 @@ export default function Bins() {
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Bin Stock</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent flex items-center gap-3">
+            <Container className="text-[#8F2C00]" size={32} />
+            Bin Stock
+          </h1>
           <p className="text-zinc-500 text-sm mt-1.5 font-medium">View all items currently stored in bins{warehouseParam ? ` for ${warehouseParam}` : ''}.</p>
         </div>
       </div>

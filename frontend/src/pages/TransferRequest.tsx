@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Trash2, Check, X, AlertCircle, Edit, Calendar, Package } from 'lucide-react';
+import { Search, Plus, Trash2, Check, X, AlertCircle, Edit, Calendar, Package, Rotate3d } from 'lucide-react';
 import { API_URL, useAuth } from '../App';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -429,7 +429,10 @@ export default function TransferRequest() {
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Transfer Requests</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent flex items-center gap-3">
+            <Rotate3d className="text-[#8F2C00]" size={32} />
+            Transfer Requests
+          </h1>
           <p className="text-sm text-zinc-500 mt-1">Manage and create transfer requests for customers.</p>
         </div>
       </div>

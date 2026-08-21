@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Button } from "@/components/ui/button";
 import { ValidatedInput } from "@/components/ui/ValidatedInput";
 import { SuccessModal } from "@/components/ui/SuccessModal";
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, ClipboardCheck } from 'lucide-react';
 
 interface Picklist {
   id: number;
@@ -171,7 +171,10 @@ export default function QualityCheck() {
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       <div>
-        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">Quality Check</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent flex items-center gap-3">
+          <ClipboardCheck className="text-[#8F2C00]" size={32} />
+          Quality Check
+        </h1>
         <p className="text-zinc-500 text-sm mt-1">Verify picklist items and approve for dispatch.</p>
       </div>
 

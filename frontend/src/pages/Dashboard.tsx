@@ -280,8 +280,9 @@ export default function Dashboard() {
       {/* HEADER ROW */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent">
-            <LayoutDashboard className="text-indigo-600 inline-block mr-2" /> Dashboard Overview
+          <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-[#8F2C00] to-[#1F8F00] bg-clip-text text-transparent flex items-center gap-3">
+            <LayoutDashboard className="text-[#8F2C00]" size={32} />
+            Dashboard Overview
           </h1>
           <p className="text-zinc-500 text-sm mt-1.5 font-medium">Welcome back, {user?.full_name || 'Olivia Williams'}. Live summary of Greens warehouse states.</p>
         </div>
