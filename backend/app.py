@@ -238,6 +238,8 @@ def init_db():
         c.execute("ALTER TABLE picklists ADD COLUMN transfer_status TEXT DEFAULT 'Pending Transfer Decision'")
     if "transfer_rejection_reason" not in picklist_columns:
         c.execute("ALTER TABLE picklists ADD COLUMN transfer_rejection_reason TEXT")
+    if "invoice_number" not in picklist_columns:
+        c.execute("ALTER TABLE picklists ADD COLUMN invoice_number TEXT")
         
     # Ensure columns exist in picklist_items
     c.execute("PRAGMA table_info(picklist_items)")
@@ -2196,6 +2198,9 @@ def upload_customers_bulk():
 def create_picklist():
     data = request.json
     customer_id = data.get('customer_id')
+    invoice_number = data.get('invoice_number')
+    if invoice_number == '':
+        invoice_number = None
     items = data.get('items', [])
     
     if not customer_id:
@@ -2206,6 +2211,12 @@ def create_picklist():
         
     conn = get_db_connection()
     c = conn.cursor()
+
+    if invoice_number:
+        c.execute("SELECT id FROM picklists WHERE invoice_number = ?", (invoice_number,))
+        if c.fetchone():
+            conn.close()
+            return jsonify({"error": f"A Transfer Request for invoice number '{invoice_number}' already exists."}), 400
     
     try:
         # Check if customer exists
@@ -2217,7 +2228,7 @@ def create_picklist():
         c.execute("BEGIN TRANSACTION")
         
         # 1. Create Picklist Record
-        c.execute("INSERT INTO picklists (customer_id, status) VALUES (?, ?)", (customer_id, 'Pending'))
+        c.execute("INSERT INTO picklists (customer_id, invoice_number, status) VALUES (?, ?, ?)", (customer_id, invoice_number, 'Pending'))
         picklist_id = c.lastrowid
         
         # 2. Process each item and validate stock
@@ -2315,7 +2326,7 @@ def get_picklists():
     
     if user and user['role'] == 'warehouse_admin':
         c.execute('''
-            SELECT DISTINCT p.id, p.customer_id, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
+            SELECT DISTINCT p.id, p.customer_id, p.invoice_number, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
             FROM picklists p
             JOIN customers c ON p.customer_id = c.id
             JOIN picklist_items pi ON p.id = pi.picklist_id
@@ -2324,7 +2335,7 @@ def get_picklists():
         ''', (user['warehouse_code'],))
     else:
         c.execute('''
-            SELECT p.id, p.customer_id, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
+            SELECT p.id, p.customer_id, p.invoice_number, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
             FROM picklists p
             JOIN customers c ON p.customer_id = c.id
             ORDER BY p.created_at DESC
@@ -2342,7 +2353,7 @@ def get_picklist(id):
     
     # Get picklist and customer details
     c.execute('''
-        SELECT p.id, p.customer_id, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
+        SELECT p.id, p.customer_id, p.invoice_number, p.status, p.created_at, p.transfer_status, p.transfer_rejection_reason, c.customer_name 
         FROM picklists p
         JOIN customers c ON p.customer_id = c.id
         WHERE p.id = ?
@@ -2781,6 +2792,30 @@ def get_dispatch_picklist(id):
     result = dict(picklist)
     result["items"] = items
     return jsonify(result), 200
+
+@app.route('/api/dispatch_picklists/<int:id>', methods=['DELETE'])
+@login_required
+def delete_dispatch_picklist(id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    try:
+        c.execute("BEGIN TRANSACTION")
+        
+        c.execute("SELECT status FROM dispatch_picklists WHERE id = ?", (id,))
+        picklist = c.fetchone()
+        if not picklist:
+            conn.close()
+            return jsonify({"error": "Picklist not found"}), 404
+            
+        c.execute("DELETE FROM dispatch_picklists WHERE id = ?", (id,))
+        
+        c.execute("COMMIT")
+        return jsonify({"success": "Picklist deleted successfully"}), 200
+    except Exception as e:
+        c.execute("ROLLBACK")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
 
 # --- SERVE FRONTEND (CATCH-ALL) ---
 @app.route('/', defaults={'path': ''})

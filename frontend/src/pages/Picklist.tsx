@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Trash2, Check, X, FileText, Download, CheckCircle, Package, ArrowRight, ListChecks } from 'lucide-react';
+import { Search, Plus, Trash2, Check, X, FileText, Download, CheckCircle, Package, ArrowRight, ListChecks, Upload } from 'lucide-react';
 import { API_URL, useAuth } from '../App';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ValidatedInput } from "@/components/ui/ValidatedInput";
 import { SuccessModal } from "@/components/ui/SuccessModal";
+import { InvoiceUploadModal, type UploadedInvoiceData } from "@/components/ui/InvoiceUploadModal";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import logo from '../assets/logo.png';
@@ -78,6 +79,7 @@ export default function Picklist() {
   // Data lists
   const [picklists, setPicklists] = useState<PicklistData[]>([]);
   const [approvedRequests, setApprovedRequests] = useState<TransferRequest[]>([]);
+  const [allTransferRequests, setAllTransferRequests] = useState<any[]>([]);
   
   // Form State
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -95,6 +97,11 @@ export default function Picklist() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [importedRequestId, setImportedRequestId] = useState<number | null>(null);
+
+  // Invoice Upload State
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [inventoryPool, setInventoryPool] = useState<any[]>([]);
+  const [isFetchingInventory, setIsFetchingInventory] = useState(false);
 
   const formatDateTime = (dateStr: string) => {
     if (!dateStr) return '';
@@ -130,6 +137,7 @@ export default function Picklist() {
       });
       if (res.ok) {
         const data = await res.json();
+        setAllTransferRequests(data);
         setApprovedRequests(data.filter((d: any) => d.status === 'Approved'));
       }
     } catch (e) {
@@ -312,6 +320,151 @@ export default function Picklist() {
     }
   };
 
+  const handleOpenUploadModal = async () => {
+    setIsUploadModalOpen(true);
+    fetchPicklists();
+    fetchApprovedRequests();
+    if (inventoryPool.length === 0) {
+      setIsFetchingInventory(true);
+      try {
+        const res = await fetch(`${API_URL}/api/inventory?limit=5000`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        setInventoryPool(data.items || []);
+      } catch (e) {
+        console.error("Failed to fetch inventory pool", e);
+      } finally {
+        setIsFetchingInventory(false);
+      }
+    }
+  };
+
+  const handleProcessUpload = async (data: UploadedInvoiceData) => {
+    const customer = customers.find(c => c.customer_name === data.party);
+    if (!customer) throw new Error("Customer not found during processing.");
+
+    const dispatchItemsToCreate: any[] = [];
+    const transferItemsToCreate: any[] = [];
+
+    const hasAnyTransfer = data.items.some(item => item.status === 'TRANSFER_REQUIRED');
+
+    data.items.forEach(item => {
+      if (hasAnyTransfer) {
+        const invItem = inventoryPool.find(inv => inv.part_number === item.part_number);
+        let srcWarehouse = '';
+        let srcBin = '';
+        
+        if (invItem && invItem.locations) {
+          const loc = invItem.locations.find((l: any) => l.warehouse !== 'DIS' && l.quantity >= item.quantity);
+          if (loc) {
+             srcWarehouse = loc.warehouse;
+             srcBin = loc.bin_location || '';
+          } else {
+             const anyLoc = invItem.locations.find((l: any) => l.quantity > 0 && l.warehouse !== 'DIS');
+             if (anyLoc) {
+               srcWarehouse = anyLoc.warehouse;
+               srcBin = anyLoc.bin_location || '';
+             } else {
+               const fallback = invItem.locations[0];
+               if (fallback) {
+                 srcWarehouse = fallback.warehouse;
+                 srcBin = fallback.bin_location || '';
+               }
+             }
+          }
+        }
+
+        transferItemsToCreate.push({
+          part_number: item.part_number,
+          warehouse: srcWarehouse, 
+          bin_location: srcBin,
+          required_quantity: item.quantity
+        });
+      } else {
+        const invItem = inventoryPool.find(inv => inv.part_number === item.part_number);
+        let binLocation = '';
+        let batchNo = '';
+        let expiry = '';
+        
+        if (invItem && invItem.locations) {
+          const disLoc = invItem.locations.find((l: any) => l.warehouse === 'DIS' && l.quantity >= item.quantity);
+          if (disLoc) {
+            binLocation = disLoc.bin_location;
+            batchNo = disLoc.batch_no || '';
+            expiry = disLoc.expiry || '';
+          } else {
+            const anyDis = invItem.locations.find((l: any) => l.warehouse === 'DIS');
+            if (anyDis) {
+               binLocation = anyDis.bin_location;
+               batchNo = anyDis.batch_no || '';
+               expiry = anyDis.expiry || '';
+            }
+          }
+        }
+        dispatchItemsToCreate.push({
+          part_number: item.part_number,
+          warehouse: 'DIS',
+          bin_location: binLocation,
+          batch_no: batchNo,
+          expiry: expiry,
+          quantity: item.quantity
+        });
+      }
+    });
+
+    if (dispatchItemsToCreate.length > 0) {
+      const dispatchPayload = {
+        customer_id: customer.id,
+        invoice_number: data.invoice_number,
+        items: dispatchItemsToCreate
+      };
+      const dispatchRes = await fetch(`${API_URL}/api/dispatch_picklists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(dispatchPayload)
+      });
+      if (!dispatchRes.ok) throw new Error((await dispatchRes.json()).error || "Failed to create Dispatch Picklist.");
+    }
+
+    if (transferItemsToCreate.length > 0) {
+      const transferPayload = {
+        customer_id: customer.id,
+        invoice_number: data.invoice_number,
+        items: transferItemsToCreate
+      };
+      const transferRes = await fetch(`${API_URL}/api/picklists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(transferPayload)
+      });
+      if (!transferRes.ok) throw new Error((await transferRes.json()).error || "Failed to create Transfer Request.");
+    }
+    
+    fetchPicklists();
+    fetchApprovedRequests();
+    setShowSuccessModal(true);
+  };
+
+  const handleDeletePicklist = async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this picklist?")) return;
+    try {
+      const res = await fetch(`${API_URL}/api/dispatch_picklists/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setPicklists(picklists.filter(pl => pl.id !== id));
+      } else {
+        const err = await res.json();
+        alert(err.error || "Failed to delete picklist");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Network error.");
+    }
+  };
+
   const downloadPDF = async (picklistId: number) => {
     try {
       const res = await fetch(`${API_URL}/api/dispatch_picklists/${picklistId}`, {
@@ -432,6 +585,9 @@ export default function Picklist() {
            </h1>
           <p className="text-sm text-zinc-500 mt-1">Manage and create picklists for dispatch.</p>
         </div>
+        <Button onClick={handleOpenUploadModal} className="gap-2 shrink-0">
+          <Upload size={16} /> Invoice Bulkupload
+        </Button>
       </div>
 
       <div className="flex bg-zinc-100 p-1 rounded-lg w-max">
@@ -478,13 +634,21 @@ export default function Picklist() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-zinc-500">{formatDateTime(pl.created_at)}</td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
                     <Button 
                       variant="outline"
                       size="sm"
                       onClick={() => downloadPDF(pl.id)}
                     >
                       <Download size={14} className="mr-1" /> PDF
+                    </Button>
+                    <Button 
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDeletePicklist(pl.id)}
+                      className="bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border-0"
+                    >
+                      <Trash2 size={14} className="mr-1" /> Delete
                     </Button>
                   </td>
                 </tr>
@@ -724,7 +888,19 @@ export default function Picklist() {
       <SuccessModal 
         isOpen={showSuccessModal} 
         onClose={() => setShowSuccessModal(false)} 
-        message="Picklist created successfully!" 
+        message="Action completed successfully!" 
+      />
+
+      <InvoiceUploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onProcess={handleProcessUpload}
+        customers={customers}
+        existingInvoices={[
+          ...picklists.map(p => p.invoice_number),
+          ...allTransferRequests.map(p => p.invoice_number)
+        ].filter(Boolean)}
+        inventory={inventoryPool}
       />
     </div>
   );
