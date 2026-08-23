@@ -40,6 +40,7 @@ interface TransferRequest {
   id: number;
   customer_id: number;
   customer_name: string;
+  invoice_number?: string;
   status: string;
   created_at: string;
 }
@@ -85,6 +86,7 @@ export default function Picklist() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   
   const [inventorySearch, setInventorySearch] = useState('');
@@ -209,6 +211,12 @@ export default function Picklist() {
       const cust = customers.find(c => c.id === request.customer_id);
       if (cust) setSelectedCustomer(cust);
       
+      if (request.invoice_number) {
+        setInvoiceNumber(request.invoice_number);
+      } else {
+        setInvoiceNumber('');
+      }
+      
       const res = await fetch(`${API_URL}/api/picklists/${request.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -271,7 +279,7 @@ export default function Picklist() {
     
     const payload = {
       customer_id: selectedCustomer.id,
-      invoice_number: '',
+      invoice_number: invoiceNumber,
       transfer_request_id: importedRequestId,
       items: selectedItems.map(item => {
         const loc = item.locations[item.selectedLocationIndex];
@@ -298,6 +306,7 @@ export default function Picklist() {
       if (res.ok) {
         setShowSuccessModal(true);
         setSelectedCustomer(null);
+        setInvoiceNumber('');
         setErrors({});
         setSelectedItems([]);
         setImportedRequestId(null);
@@ -356,21 +365,27 @@ export default function Picklist() {
         let srcBin = '';
         
         if (invItem && invItem.locations) {
-          const loc = invItem.locations.find((l: any) => l.warehouse !== 'DIS' && l.quantity >= item.quantity);
-          if (loc) {
-             srcWarehouse = loc.warehouse;
-             srcBin = loc.bin_location || '';
+          const disLoc = invItem.locations.find((l: any) => l.warehouse === 'DIS' && l.quantity >= item.quantity);
+          if (disLoc) {
+             srcWarehouse = disLoc.warehouse;
+             srcBin = disLoc.bin_location || '';
           } else {
-             const anyLoc = invItem.locations.find((l: any) => l.quantity > 0 && l.warehouse !== 'DIS');
-             if (anyLoc) {
-               srcWarehouse = anyLoc.warehouse;
-               srcBin = anyLoc.bin_location || '';
+             const loc = invItem.locations.find((l: any) => l.warehouse !== 'DIS' && l.quantity >= item.quantity);
+             if (loc) {
+                srcWarehouse = loc.warehouse;
+                srcBin = loc.bin_location || '';
              } else {
-               const fallback = invItem.locations[0];
-               if (fallback) {
-                 srcWarehouse = fallback.warehouse;
-                 srcBin = fallback.bin_location || '';
-               }
+                const anyLoc = invItem.locations.find((l: any) => l.quantity > 0 && l.warehouse !== 'DIS');
+                if (anyLoc) {
+                  srcWarehouse = anyLoc.warehouse;
+                  srcBin = anyLoc.bin_location || '';
+                } else {
+                  const fallback = invItem.locations[0];
+                  if (fallback) {
+                    srcWarehouse = fallback.warehouse;
+                    srcBin = fallback.bin_location || '';
+                  }
+                }
              }
           }
         }
@@ -574,7 +589,6 @@ export default function Picklist() {
   const filteredCustomers = customers.filter(c => 
     c.customer_name.toLowerCase().includes(customerSearch.toLowerCase())
   );
-
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -618,6 +632,7 @@ export default function Picklist() {
               <tr>
                 <th className="px-6 py-4">ID</th>
                 <th className="px-6 py-4">Customer</th>
+                <th className="px-6 py-4">Invoice No.</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Created Date</th>
                 <th className="px-6 py-4 text-right">Actions</th>
@@ -628,6 +643,7 @@ export default function Picklist() {
                 <tr key={pl.id} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50/50">
                   <td className="px-6 py-4 font-medium text-zinc-900">#{pl.id}</td>
                   <td className="px-6 py-4">{pl.customer_name}</td>
+                  <td className="px-6 py-4 text-zinc-700">{pl.invoice_number || '-'}</td>
                   <td className="px-6 py-4">
                     <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-1 rounded-full">
                       {pl.status}
@@ -672,6 +688,7 @@ export default function Picklist() {
               <tr>
                 <th className="px-6 py-4">Request ID</th>
                 <th className="px-6 py-4">Customer</th>
+                <th className="px-6 py-4">Invoice No.</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Date</th>
                 <th className="px-6 py-4 text-right">Actions</th>
@@ -682,6 +699,7 @@ export default function Picklist() {
                 <tr key={req.id} className="border-b border-zinc-50 last:border-0 hover:bg-zinc-50/50">
                   <td className="px-6 py-4 font-medium text-zinc-900">#{req.id}</td>
                   <td className="px-6 py-4">{req.customer_name}</td>
+                  <td className="px-6 py-4 text-zinc-700">{req.invoice_number || '-'}</td>
                   <td className="px-6 py-4">
                     <span className="bg-emerald-100 text-emerald-800 text-xs font-medium px-2.5 py-1 rounded-full flex w-fit items-center gap-1">
                       <CheckCircle size={12} /> {req.status}
@@ -765,6 +783,21 @@ export default function Picklist() {
               </div>
             </div>
           </div>
+
+          {selectedCustomer && (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-zinc-200">
+              <div className="max-w-md">
+                <label className="block text-sm font-medium text-zinc-700 mb-1">Invoice Number (Optional)</label>
+                <input
+                  type="text"
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                  placeholder="Enter Invoice Number"
+                  className="w-full px-4 py-2 bg-white border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="bg-white p-6 rounded-xl shadow-sm border border-zinc-200">
             <h2 className="text-lg font-semibold text-zinc-800 mb-4">Inventory Selection (DIS Warehouse Only)</h2>

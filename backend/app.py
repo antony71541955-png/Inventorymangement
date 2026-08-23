@@ -212,6 +212,31 @@ def init_db():
             FOREIGN KEY(dispatch_picklist_id) REFERENCES dispatch_picklists(id) ON DELETE CASCADE
         )
     ''')
+
+    # 14. Internal Transfer Requests Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS internal_transfer_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tr_number TEXT UNIQUE NOT NULL,
+            source_warehouse TEXT NOT NULL,
+            status TEXT DEFAULT 'Draft',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # 15. Internal Transfer Request Items Table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS internal_transfer_request_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id INTEGER NOT NULL,
+            part_number TEXT NOT NULL,
+            item_name TEXT NOT NULL,
+            quantity INTEGER NOT NULL,
+            source_bin TEXT NOT NULL,
+            FOREIGN KEY(request_id) REFERENCES internal_transfer_requests(id) ON DELETE CASCADE
+        )
+    ''')
     
     # Add indices for fast pagination over 25,000+ items
     c.execute("CREATE INDEX IF NOT EXISTS idx_items_part_number ON items(part_number)")
@@ -1223,6 +1248,20 @@ def create_bin():
 @login_required
 def post_transfer():
     data = request.json
+
+    tr_number = data.get("tr_number")
+    conn = get_db_connection()
+    c = conn.cursor()
+    if tr_number:
+        c.execute("SELECT status FROM internal_transfer_requests WHERE tr_number = ?", (tr_number,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": f"Transfer Request {tr_number} not found."}), 404
+        if row['status'] == 'Completed':
+            conn.close()
+            return jsonify({"error": f"Transfer Request {tr_number} has already been posted."}), 400
+    conn.close()
     if not data:
         return jsonify({"error": "No data provided"}), 400
         
@@ -1283,6 +1322,9 @@ def post_transfer():
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (voucher, 'TRANSFER', part_number, quantity, from_warehouse, from_bin, to_warehouse, to_bin, request.user["full_name"], remarks))
         
+
+        if tr_number:
+            c.execute("UPDATE internal_transfer_requests SET status = 'Completed', updated_at = CURRENT_TIMESTAMP WHERE tr_number = ?", (tr_number,))
         c.execute("COMMIT")
         conn.commit()
     except Exception as e:
@@ -2273,11 +2315,12 @@ def create_picklist():
                 conn.close()
                 return jsonify({"error": f"Required quantity ({required_quantity}) exceeds available ({available_qty}) for {part_number} at {warehouse} - {bin_location}"}), 400
                 
+            item_status = 'Possible' if warehouse == 'DIS' else 'Pending'
             # Insert into picklist_items
             c.execute('''
-                INSERT INTO picklist_items (picklist_id, part_number, warehouse, bin_location, required_quantity)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (picklist_id, part_number, warehouse, bin_location, required_quantity))
+                INSERT INTO picklist_items (picklist_id, part_number, warehouse, bin_location, required_quantity, transfer_status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (picklist_id, part_number, warehouse, bin_location, required_quantity, item_status))
             
             # NOTE: If we wanted to deduct stock immediately upon Picklist creation, we would do it here.
             # Currently leaving stock as is, just tracking the picklist.
@@ -2285,6 +2328,8 @@ def create_picklist():
             
         # Create notifications for the Warehouse Admins involved
         for wh in warehouses_involved:
+            if wh == 'DIS':
+                continue
             c.execute("SELECT id FROM users WHERE role = 'warehouse_admin' AND warehouse_code = ?", (wh,))
             admins = c.fetchall()
             for admin in admins:
@@ -2292,6 +2337,15 @@ def create_picklist():
                     INSERT INTO notifications (target_user_id, title, message, related_entity_type, related_entity_id)
                     VALUES (?, ?, ?, ?, ?)
                 ''', (admin['id'], 'New Transfer Request', f'Transfer Request #{picklist_id} requires stock transfer approval for warehouse {wh}.', 'picklist', picklist_id))
+        
+        # Calculate overall transfer status in case some or all were DIS
+        c.execute("SELECT transfer_status FROM picklist_items WHERE picklist_id = ?", (picklist_id,))
+        item_statuses = [row['transfer_status'] for row in c.fetchall()]
+        if all(s == 'Possible' for s in item_statuses):
+            overall_status = 'Transfer Decisions Made'
+        else:
+            overall_status = 'Pending Transfer Decision'
+        c.execute("UPDATE picklists SET transfer_status = ? WHERE id = ?", (overall_status, picklist_id))
             
         c.execute("COMMIT")
         conn.commit()
@@ -2406,6 +2460,9 @@ def get_picklist(id):
 def update_picklist(id):
     data = request.json
     status = data.get('status', 'Pending')
+    invoice_number = data.get('invoice_number')
+    if invoice_number == '':
+        invoice_number = None
     items = data.get('items', [])
     
     if not items or len(items) == 0:
@@ -2422,8 +2479,8 @@ def update_picklist(id):
             
         c.execute("BEGIN TRANSACTION")
         
-        # 1. Update picklist status
-        c.execute("UPDATE picklists SET status = ? WHERE id = ?", (status, id))
+        # 1. Update picklist status and invoice_number
+        c.execute("UPDATE picklists SET status = ?, invoice_number = ? WHERE id = ?", (status, invoice_number, id))
         
         # 2. Delete existing items
         c.execute("DELETE FROM picklist_items WHERE picklist_id = ?", (id,))
@@ -2467,10 +2524,23 @@ def update_picklist(id):
                 conn.close()
                 return jsonify({"error": f"Required quantity ({required_quantity}) exceeds available ({available_qty}) for {part_number} at {warehouse} - {bin_location}"}), 400
                 
+            item_status = 'Possible' if warehouse == 'DIS' else 'Pending'
             c.execute('''
-                INSERT INTO picklist_items (picklist_id, part_number, warehouse, bin_location, required_quantity)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (id, part_number, warehouse, bin_location, required_quantity))
+                INSERT INTO picklist_items (picklist_id, part_number, warehouse, bin_location, required_quantity, transfer_status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (id, part_number, warehouse, bin_location, required_quantity, item_status))
+            
+        # Calculate overall transfer status
+        c.execute("SELECT transfer_status FROM picklist_items WHERE picklist_id = ?", (id,))
+        item_statuses = [row['transfer_status'] for row in c.fetchall()]
+        
+        overall_transfer_status = 'Pending Transfer Decision'
+        if all(s == 'Possible' for s in item_statuses):
+            overall_transfer_status = 'Transfer Decisions Made'
+        elif any(s == 'Not Possible' for s in item_statuses):
+            overall_transfer_status = 'Transfer Not Possible'
+            
+        c.execute("UPDATE picklists SET transfer_status = ? WHERE id = ?", (overall_transfer_status, id))
             
         c.execute("COMMIT")
         conn.commit()
@@ -2832,6 +2902,110 @@ def serve(path):
         if os.path.exists(os.path.join(app.static_folder, 'index.html')):
             return send_from_directory(app.static_folder, 'index.html')
         return "Frontend build not found.", 404
+
+
+# --- INTERNAL TRANSFER REQUEST API ---
+@app.route('/api/internal-transfers/next-number', methods=['GET'])
+@login_required
+def get_next_internal_transfer_number():
+    warehouse = request.args.get('warehouse', '')
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT tr_number FROM internal_transfer_requests ORDER BY id DESC LIMIT 1")
+    row = c.fetchone()
+    conn.close()
+    
+    next_num = 1
+    if row:
+        parts = row['tr_number'].split('-')
+        if len(parts) >= 2 and parts[1].isdigit():
+            next_num = int(parts[1]) + 1
+            
+    if warehouse:
+        tr_number = f"TR-{next_num:04d}-{warehouse}"
+    else:
+        tr_number = f"TR-{next_num:04d}"
+        
+    return jsonify({"tr_number": tr_number}), 200
+
+@app.route('/api/internal-transfers', methods=['POST'])
+@login_required
+def create_internal_transfer():
+    data = request.json
+    tr_number = data.get('tr_number')
+    source_warehouse = data.get('source_warehouse')
+    items = data.get('items', [])
+    
+    if not tr_number or not source_warehouse or not items:
+        return jsonify({"error": "Missing required fields"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        c.execute("BEGIN TRANSACTION")
+        c.execute('''
+            INSERT INTO internal_transfer_requests (tr_number, source_warehouse, status)
+            VALUES (?, ?, 'Draft')
+        ''', (tr_number, source_warehouse))
+        
+        request_id = c.lastrowid
+        
+        for item in items:
+            c.execute('''
+                INSERT INTO internal_transfer_request_items (request_id, part_number, item_name, quantity, source_bin)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (request_id, item['part_number'], item['item_name'], item['quantity'], item['source_bin']))
+            
+        c.execute("COMMIT")
+        conn.close()
+        
+        return jsonify({"success": True, "id": request_id, "tr_number": tr_number}), 201
+        
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        conn.close()
+        return jsonify({"error": f"Transfer Request number {tr_number} already exists. Please refresh to get a new number."}), 400
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/internal-transfers/<int:id>', methods=['PUT'])
+@login_required
+def update_internal_transfer(id):
+    data = request.json
+    items = data.get('items', [])
+    
+    if not items:
+        return jsonify({"error": "Missing items"}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        c.execute("BEGIN TRANSACTION")
+        
+        c.execute("DELETE FROM internal_transfer_request_items WHERE request_id = ?", (id,))
+        
+        for item in items:
+            c.execute('''
+                INSERT INTO internal_transfer_request_items (request_id, part_number, item_name, quantity, source_bin)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (id, item['part_number'], item['item_name'], item['quantity'], item['source_bin']))
+            
+        c.execute("UPDATE internal_transfer_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (id,))
+        
+        c.execute("COMMIT")
+        conn.close()
+        
+        return jsonify({"success": True}), 200
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

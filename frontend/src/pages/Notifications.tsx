@@ -23,6 +23,7 @@ interface Notification {
 interface Picklist {
   id: number;
   customer_name: string;
+  invoice_number?: string;
   status: string;
   transfer_status: string;
   items: PicklistItem[];
@@ -224,7 +225,8 @@ export default function Notifications() {
           from_bin: item.actual_bin_location || item.bin_location,
           quantity: item.required_quantity
         })),
-        picklist_id: picklistData.id
+        picklist_id: picklistData.id,
+        invoice_number: picklistData.invoice_number
       } 
     });
   };

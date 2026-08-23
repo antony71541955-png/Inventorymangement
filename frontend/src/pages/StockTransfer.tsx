@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth, API_URL } from '../App';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   RefreshCw, 
   MapPin, 
@@ -14,8 +14,12 @@ import {
   ChevronDown,
   Check,
   ScanBarcode,
-  ArrowRightLeft
+  ArrowRightLeft,
+  ArrowLeft,
+  Download
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { ScannerModal } from "@/components/ui/ScannerModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -128,9 +132,9 @@ function SearchableMultiSelect({
   disabled = false,
   className
 }: {
-  options: { label: React.ReactNode; textValue: string; value: number; partNumber?: string }[];
-  selectedValues: number[];
-  onChange: (val: number) => void;
+  options: { label: React.ReactNode; textValue: string; value: string; partNumber?: string }[];
+  selectedValues: string[];
+  onChange: (val: string) => void;
   placeholder?: string;
   emptyText?: string;
   disabled?: boolean;
@@ -251,8 +255,9 @@ function SearchableMultiSelect({
 }
 
 export default function StockTransfer() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   
   // Data states
   const [itemsPool, setItemsPool] = useState<LocationItem[]>([]);
@@ -262,7 +267,17 @@ export default function StockTransfer() {
   
   // Source selection states
   const [sourceWarehouse, setSourceWarehouse] = useState<string>('');
-  const [selectedSourceItems, setSelectedSourceItems] = useState<number[]>([]);
+  interface SelectedSource {
+    part_number: string;
+    item_name: string;
+    sourceItemIndex: number;
+    transferQty: string;
+  }
+  const [selectedSources, setSelectedSources] = useState<SelectedSource[]>([]);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [trNumber, setTrNumber] = useState('');
+  const [trId, setTrId] = useState<number | null>(null);
   
   // Destination form states
   interface Destination {
@@ -362,58 +377,48 @@ export default function StockTransfer() {
     setScannerError(null);
     setScannerSuccess(null);
     
-    let foundAny = false;
-    let newWarehouse = '';
+    const matchingItems = itemsPool.map((item, index) => ({ item, index })).filter(x => x.item.part_number.toLowerCase() === scannedPartNumber.toLowerCase());
     
-    setSelectedSourceItems(prev => {
-      const newSelected = [...prev];
-      const addedIndices: number[] = [];
-      
-      itemsPool.forEach((item, index) => {
-        if (item.part_number.toLowerCase() === scannedPartNumber.toLowerCase()) {
-          foundAny = true;
-          if (!newSelected.includes(index)) {
-            newSelected.push(index);
-            addedIndices.push(index);
-            if (!newWarehouse) newWarehouse = item.warehouse;
-          }
-        }
-      });
-      
-      setTimeout(() => {
-        if (addedIndices.length > 0) {
-          if (newWarehouse) {
-            setSourceWarehouse(prevWh => prevWh ? prevWh : newWarehouse);
-          }
-          
-          setDestinations(curr => {
-            let newDestinations = [...curr];
-            const hasEmpty = newDestinations.length === 1 && newDestinations[0].sourceItemIndex === '';
-            if (hasEmpty) {
-              newDestinations = [];
+    if (matchingItems.length > 0) {
+        const defaultOption = matchingItems.reduce((prev, current) => (prev.item.quantity > current.item.quantity) ? prev : current);
+        const newIndex = defaultOption.index;
+        const item = defaultOption.item;
+        
+        setSelectedSources(prev => {
+            if (prev.find(s => s.part_number === item.part_number)) {
+                return prev; // already added
             }
-            addedIndices.forEach(idx => {
-              newDestinations.push({
-                sourceItemIndex: idx,
-                toWarehouse: '',
-                toBin: '',
-                qtyToTransfer: '1',
-                remarks: 'Location stock transfer'
-              });
-            });
-            return newDestinations;
-          });
-
-          setScannerSuccess(`Scanned: ${scannedPartNumber} selected.`);
-          setTimeout(() => setScannerSuccess(null), 3000);
-        } else if (!foundAny) {
-          setScannerError(`Barcode scanned: ${scannedPartNumber} not found.`);
-          setTimeout(() => setScannerError(null), 3000);
-        }
-      }, 0);
-
-      return newSelected;
-    });
+            
+            setTimeout(() => {
+                setSourceWarehouse(prevWh => prevWh ? prevWh : item.warehouse);
+                setDestinations(curr => {
+                    let newDestinations = [...curr];
+                    const hasEmpty = newDestinations.length === 1 && newDestinations[0].sourceItemIndex === '';
+                    if (hasEmpty) newDestinations = [];
+                    newDestinations.push({
+                        sourceItemIndex: newIndex,
+                        toWarehouse: '',
+                        toBin: '',
+                        qtyToTransfer: '1',
+                        remarks: 'Location stock transfer'
+                    });
+                    return newDestinations;
+                });
+                setScannerSuccess(`Scanned: ${scannedPartNumber} selected.`);
+                setTimeout(() => setScannerSuccess(null), 3000);
+            }, 0);
+            
+            return [...prev, {
+                part_number: item.part_number,
+                item_name: item.item_name,
+                sourceItemIndex: newIndex,
+                transferQty: '1'
+            }];
+        });
+    } else {
+        setScannerError(`Barcode scanned: ${scannedPartNumber} not found.`);
+        setTimeout(() => setScannerError(null), 3000);
+    }
   };
 
   useEffect(() => {
@@ -428,15 +433,28 @@ export default function StockTransfer() {
     }
   }, [user]);
 
+  useEffect(() => {
+    if (step === 1 && !trId && token) {
+      const url = sourceWarehouse 
+        ? `${API_URL}/api/internal-transfers/next-number?warehouse=${encodeURIComponent(sourceWarehouse)}`
+        : `${API_URL}/api/internal-transfers/next-number`;
+        
+      fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => { if (data.tr_number) setTrNumber(data.tr_number); })
+      .catch(console.error);
+    }
+  }, [sourceWarehouse, step, trId, token]);
+
+
   // Pre-fill logic for picklist decisions
   useEffect(() => {
     if (itemsPool.length > 0 && location.state?.prefillItems) {
       const prefillItems = location.state.prefillItems;
-      const newSelectedSourceItems: number[] = [];
+      const newSelectedSources: SelectedSource[] = [];
       const newDestinations: Destination[] = [];
       
       prefillItems.forEach((prefillItem: any) => {
-        // Find matching item in pool
         const matchIndex = itemsPool.findIndex(
           p => p.part_number === prefillItem.part_number && 
                p.warehouse === prefillItem.from_warehouse && 
@@ -444,28 +462,39 @@ export default function StockTransfer() {
         );
         
         if (matchIndex !== -1) {
-          newSelectedSourceItems.push(matchIndex);
+          const item = itemsPool[matchIndex];
+          if (!newSelectedSources.find(s => s.part_number === item.part_number)) {
+            newSelectedSources.push({
+              part_number: item.part_number,
+              item_name: item.item_name,
+              sourceItemIndex: matchIndex,
+              transferQty: prefillItem.quantity.toString()
+            });
+          }
+          
           newDestinations.push({
             sourceItemIndex: matchIndex,
             toWarehouse: '',
             toBin: '',
             qtyToTransfer: prefillItem.quantity.toString(),
-            remarks: `Transfer for Picklist #${location.state.picklist_id || ''}`
+            remarks: `Transfer for Picklist #${location.state.picklist_id || ''}${location.state.invoice_number ? ` (Inv: ${location.state.invoice_number})` : ''}`
           });
         }
       });
       
-      if (newSelectedSourceItems.length > 0) {
-        setSelectedSourceItems(newSelectedSourceItems);
-        // Only set source warehouse if they all share the same source warehouse
-        const uniqueWarehouses = [...new Set(newSelectedSourceItems.map(i => itemsPool[i].warehouse))];
+      if (newSelectedSources.length > 0) {
+        setSelectedSources(newSelectedSources);
+        const uniqueWarehouses = [...new Set(newSelectedSources.map(s => itemsPool[s.sourceItemIndex].warehouse))];
         if (uniqueWarehouses.length === 1) {
           setSourceWarehouse(uniqueWarehouses[0]);
         }
         setDestinations(newDestinations);
       }
+
+      // Clear the location state so it doesn't prefill again on subsequent re-renders (e.g. after posting transfer)
+      navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [itemsPool, location.state]);
+  }, [itemsPool, location.state, navigate, location.pathname]);
 
   const warehouseItems = useMemo(() => {
     if (!sourceWarehouse) {
@@ -476,45 +505,34 @@ export default function StockTransfer() {
 
   const handleSourceWarehouseChange = (wh: string) => {
     setSourceWarehouse(wh);
-    setSelectedSourceItems([]);
+    setSelectedSources([]);
     setDestinations([{ sourceItemIndex: '', toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }]);
     setError(null);
   };
 
-  const toggleSourceItem = (index: number) => {
-    const item = itemsPool[index];
-    setSourceWarehouse(prev => prev ? prev : item.warehouse);
-    
-    setSelectedSourceItems(prev => {
-      const isSelected = prev.includes(index);
-      
-      if (isSelected) {
-        // Remove item from selected
-        setDestinations(curr => {
-          const newDestinations = curr.filter(d => d.sourceItemIndex !== index);
-          if (newDestinations.length === 0) {
-            return [{ sourceItemIndex: '', toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }];
-          }
-          return newDestinations;
-        });
-        return prev.filter(i => i !== index);
+  const toggleSourceItem = (part_number: string) => {
+    setSelectedSources(prev => {
+      const existing = prev.find(s => s.part_number === part_number);
+      if (existing) {
+        return prev.filter(s => s.part_number !== part_number);
       } else {
-        // Add item to selected
-        setDestinations(curr => {
-          const hasEmpty = curr.length === 1 && curr[0].sourceItemIndex === '';
-          const newDest = { 
-            sourceItemIndex: index, 
-            toWarehouse: '', 
-            toBin: '', 
-            qtyToTransfer: '1', 
-            remarks: 'Location stock transfer' 
-          };
-          if (hasEmpty) {
-            return [newDest];
-          }
-          return [...curr, newDest];
-        });
-        return [...prev, index];
+        const itemOptions = warehouseItems.filter(w => w.item.part_number === part_number);
+        if (itemOptions.length === 0) return prev;
+        
+        const defaultOption = itemOptions.reduce((acc, current) => (acc.item.quantity > current.item.quantity) ? acc : current);
+        const newIndex = defaultOption.index;
+        const item = defaultOption.item;
+        
+        setTimeout(() => {
+          setSourceWarehouse(prevWh => prevWh ? prevWh : item.warehouse);
+        }, 0);
+        
+        return [...prev, {
+          part_number: item.part_number,
+          item_name: item.item_name,
+          sourceItemIndex: newIndex,
+          transferQty: '1'
+        }];
       }
     });
     setError(null);
@@ -531,10 +549,14 @@ export default function StockTransfer() {
         if (selectedItem) {
             newDestinations[index].toWarehouse = selectedItem.warehouse;
             
-            // Auto-add to selected source items if not already there so validation passes
-            setSelectedSourceItems(prev => {
-              if (!prev.includes(value as number)) {
-                return [...prev, value as number];
+            setSelectedSources(prev => {
+              if (!prev.find(s => s.sourceItemIndex === value)) {
+                return [...prev, {
+                  part_number: selectedItem.part_number,
+                  item_name: selectedItem.item_name,
+                  sourceItemIndex: value as number,
+                  transferQty: '1'
+                }];
               }
               return prev;
             });
@@ -554,6 +576,125 @@ export default function StockTransfer() {
     }
   };
 
+  const handleNextStep = async () => {
+    if (!sourceWarehouse) {
+      setError('Please select a source warehouse.');
+      return;
+    }
+    if (selectedSources.length === 0) {
+      setError('Please select at least one item to transfer.');
+      return;
+    }
+    
+    let hasErrors = false;
+    for (const source of selectedSources) {
+       const qty = parseInt(source.transferQty) || 0;
+       const poolItem = itemsPool[source.sourceItemIndex];
+       if (qty <= 0) {
+          setError(`Transfer quantity for ${source.part_number} must be > 0`);
+          hasErrors = true;
+          break;
+       }
+       if (qty > poolItem.quantity) {
+          setError(`Insufficient stock for ${source.part_number}. Request (${qty}) exceeds available (${poolItem.quantity}).`);
+          hasErrors = true;
+          break;
+       }
+    }
+    if (hasErrors) return;
+
+    setError(null);
+    setIsSubmitting(true);
+    
+    try {
+      const draftItems = selectedSources.map(s => {
+        const item = itemsPool[s.sourceItemIndex];
+        return {
+          part_number: item.part_number,
+          item_name: item.item_name,
+          source_bin: item.bin_location,
+          quantity: parseInt(s.transferQty) || 0
+        };
+      });
+      
+      const method = trId ? 'PUT' : 'POST';
+      const url = trId ? `${API_URL}/api/internal-transfers/${trId}` : `${API_URL}/api/internal-transfers`;
+      
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          tr_number: trNumber,
+          source_warehouse: sourceWarehouse,
+          items: draftItems
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save transfer request.');
+      
+      if (data.id) setTrId(data.id);
+      if (data.tr_number) setTrNumber(data.tr_number);
+      
+      const newDests = selectedSources.map(s => ({
+         sourceItemIndex: s.sourceItemIndex,
+         toWarehouse: '',
+         toBin: '',
+         qtyToTransfer: s.transferQty,
+         remarks: `Transfer Request ${data.tr_number || trNumber}`
+      }));
+      setDestinations(newDests);
+      
+      setStep(2);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const generatePDF = (currentStep: 1 | 2) => {
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text(currentStep === 1 ? 'Transfer Request Summary' : 'Transfer Summary', 14, 20);
+    doc.setFontSize(11);
+    doc.text(`TR Number: ${trNumber}`, 14, 30);
+    doc.text(`Source Warehouse: ${sourceWarehouse}`, 14, 38);
+    doc.text(`Date: ${new Date().toLocaleString()}`, 14, 46);
+
+    const tableColumn = currentStep === 1 
+      ? ["Part No.", "Description", "Source Bin", "Available Qty", "Transfer Qty"]
+      : ["Part No.", "Description", "Source Bin", "Destination", "Transfer Qty"];
+
+    const tableRows: any[] = [];
+    if (currentStep === 1) {
+      selectedSources.forEach(s => {
+        const item = itemsPool[s.sourceItemIndex];
+        tableRows.push([
+          item.part_number, item.item_name, item.bin_location, item.quantity, s.transferQty
+        ]);
+      });
+    } else {
+      destinations.forEach(d => {
+        const item = itemsPool[d.sourceItemIndex as number];
+        tableRows.push([
+          item.part_number, item.item_name, item.bin_location, `${d.toWarehouse} / ${d.toBin}`, d.qtyToTransfer
+        ]);
+      });
+    }
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 55,
+      theme: 'grid',
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [40, 40, 40] }
+    });
+
+    doc.save(`${trNumber || 'Transfer'}_Summary.pdf`);
+  };
+
   const handlePostTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -566,7 +707,7 @@ export default function StockTransfer() {
       return;
     }
 
-    if (selectedSourceItems.length === 0) {
+    if (selectedSources.length === 0) {
       setError('Please select at least one item to transfer.');
       setPosting(false);
       return;
@@ -579,30 +720,35 @@ export default function StockTransfer() {
     
     for (let i = 0; i < destinations.length; i++) {
       const dest = destinations[i];
+      let rowError = '';
       
       if (dest.sourceItemIndex === '') {
-        setError(`Please select an item for destination row ${i + 1}.`);
-        setPosting(false);
-        return;
+        rowError = 'Please select an item for this destination.';
+        hasErrors = true;
+      } else {
+        const qty = parseInt(dest.qtyToTransfer) || 0;
+        if (qty <= 0) {
+          newErrors[`qty_${i}`] = `Must be > 0`;
+          hasErrors = true;
+        }
+        
+        if (!dest.toWarehouse.trim() || !dest.toBin.trim()) {
+          rowError = 'Destination warehouse and bin are mandatory.';
+          hasErrors = true;
+        } else {
+          const sourceItem = itemsPool[dest.sourceItemIndex as number];
+          if (sourceItem.warehouse === dest.toWarehouse.trim() && sourceItem.bin_location === dest.toBin.trim()) {
+            rowError = 'Destination location cannot be identical to the source location.';
+            hasErrors = true;
+          }
+        }
+        
+        qtyMap[dest.sourceItemIndex as number] = (qtyMap[dest.sourceItemIndex as number] || 0) + qty;
       }
       
-      const qty = parseInt(dest.qtyToTransfer) || 0;
-      if (qty <= 0) {
-        newErrors[`qty_${i}`] = `Must be > 0`;
-        hasErrors = true;
+      if (rowError) {
+        newErrors[`row_${i}`] = rowError;
       }
-      if (!dest.toWarehouse.trim() || !dest.toBin.trim()) {
-        setError(`Destination warehouse and bin are mandatory for destination ${i + 1}.`);
-        hasErrors = true;
-      }
-      
-      const sourceItem = itemsPool[dest.sourceItemIndex as number];
-      if (sourceItem.warehouse === dest.toWarehouse.trim() && sourceItem.bin_location === dest.toBin.trim()) {
-        setError(`Destination location cannot be identical to the source location for destination ${i + 1}.`);
-        hasErrors = true;
-      }
-      
-      qtyMap[dest.sourceItemIndex as number] = (qtyMap[dest.sourceItemIndex as number] || 0) + qty;
     }
 
     if (hasErrors) {
@@ -651,8 +797,12 @@ export default function StockTransfer() {
       setSuccess(`Journal Voucher(s) posted successfully: ${vouchers.join(', ')}`);
       
       // Reset form fields
-      setSourceWarehouse('');
-      setSelectedSourceItems([]);
+      if (user?.role === 'warehouse_admin' && user?.warehouse_code) {
+        setSourceWarehouse(user.warehouse_code);
+      } else {
+        setSourceWarehouse('');
+      }
+      setSelectedSources([]);
       setDestinations([{ sourceItemIndex: '', toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }]);
 
       // Refresh data
@@ -668,23 +818,39 @@ export default function StockTransfer() {
   // Compute options for dropdowns
   const warehouseOptions = Object.keys(locations).map(wh => ({ label: wh, value: wh }));
   
-  const multiSelectItems = warehouseItems.map(({ item, index }) => ({
-    label: (
-      <div className="flex flex-col">
-        <span className="font-semibold">{item.part_number} <span className="font-normal text-zinc-600">- {item.item_name}</span></span>
-        <span className="text-[10px] text-zinc-500">Bin: {item.bin_location} | Bal: {item.quantity}</span>
-      </div>
-    ),
-    textValue: `${item.part_number} ${item.item_name} ${item.bin_location}`, // searchable text
-    partNumber: item.part_number,
-    value: index
-  }));
+  const multiSelectItems = useMemo(() => {
+    const map = new Map<string, any>();
+    warehouseItems.forEach(({ item, index }) => {
+       if (!map.has(item.part_number)) {
+         map.set(item.part_number, { item, index });
+       } else {
+         if (item.quantity > map.get(item.part_number).item.quantity) {
+           map.set(item.part_number, { item, index });
+         }
+       }
+    });
 
-  const selectedItemsOptions = selectedSourceItems.map(idx => {
-    const item = itemsPool[idx];
+    return Array.from(map.values()).map(({ item, index }) => {
+      const totalBal = warehouseItems.filter(w => w.item.part_number === item.part_number).reduce((acc, curr) => acc + curr.item.quantity, 0);
+      return {
+        label: (
+          <div className="flex flex-col">
+            <span className="font-semibold">{item.part_number} <span className="font-normal text-zinc-600">- {item.item_name}</span></span>
+            <span className="text-[10px] text-zinc-500">Total Bal: {totalBal} pcs</span>
+          </div>
+        ),
+        textValue: `${item.part_number} ${item.item_name}`,
+        partNumber: item.part_number,
+        value: item.part_number
+      };
+    });
+  }, [warehouseItems]);
+
+  const selectedItemsOptions = selectedSources.map(s => {
+    const item = itemsPool[s.sourceItemIndex];
     return {
       label: `${item.part_number} - ${item.item_name} (Bal: ${item.quantity}) - Bin: ${item.bin_location}`,
-      value: idx
+      value: s.sourceItemIndex
     };
   });
 
@@ -715,9 +881,9 @@ export default function StockTransfer() {
         successMessage={scannerSuccess}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* Post Transfer card (takes 2/3 width) */}
-        <Card className="lg:col-span-2 bg-white border border-zinc-200/80 rounded-xl shadow-sm">
+      <div className="w-full">
+        {/* Main Form card */}
+        <Card className="w-full bg-white border border-zinc-200/80 rounded-xl shadow-sm">
           <CardHeader>
             <CardTitle className="text-lg font-bold text-zinc-900">Record New Transfer</CardTitle>
             <CardDescription className="text-xs text-zinc-500">Post transaction to journal logs and update stock locations</CardDescription>
@@ -736,8 +902,17 @@ export default function StockTransfer() {
               onClose={() => setSuccess(null)}
             />
 
-            <form onSubmit={handlePostTransfer} className="space-y-4.5">
-              <div className="grid grid-cols-2 gap-4">
+            {step === 1 ? (
+              <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">TR Number</label>
+                  <Input 
+                    readOnly 
+                    value={trNumber || 'Auto-generated'} 
+                    className="bg-zinc-100 border-zinc-200 text-zinc-500 cursor-not-allowed h-[38px] text-xs font-semibold" 
+                  />
+                </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Source Warehouse*</label>
                   <SearchableSelect
@@ -754,7 +929,7 @@ export default function StockTransfer() {
                   <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Select Items*</label>
                   <SearchableMultiSelect
                     options={multiSelectItems}
-                    selectedValues={selectedSourceItems}
+                    selectedValues={selectedSources.map(s => s.part_number)}
                     onChange={toggleSourceItem}
                     placeholder="-- Select Items --"
                     disabled={loadingItems}
@@ -763,16 +938,49 @@ export default function StockTransfer() {
                 </div>
               </div>
 
-              {selectedSourceItems.length > 0 && (
-                <div className="p-4 bg-zinc-50 border border-zinc-200/80 rounded-lg space-y-2 text-xs">
+              {selectedSources.length > 0 && (
+                <div className="p-4 bg-zinc-50 border border-zinc-200/80 rounded-lg space-y-2 text-xs mt-6">
                   <div className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Selected Source Items</div>
-                  <ul className="space-y-1 mt-2">
-                    {selectedSourceItems.map(index => {
-                      const item = itemsPool[index];
+                  <ul className="space-y-3 mt-2">
+                    {selectedSources.map((source) => {
+                      const item = itemsPool[source.sourceItemIndex];
+                      const availableBins = warehouseItems.filter(w => w.item.part_number === source.part_number);
+                      
                       return (
-                        <li key={index} className="flex justify-between items-center text-zinc-650 border-b border-zinc-100 pb-1.5 pt-1.5 last:border-0 last:pb-0">
-                          <span className="truncate pr-4"><strong className="text-zinc-800">{item.part_number}</strong> - {item.item_name}</span>
-                          <span className="text-[10px] whitespace-nowrap shrink-0">Bin: <strong className="text-zinc-800">{item.bin_location}</strong> | Bal: <strong className="text-zinc-950">{item.quantity} pcs</strong></span>
+                        <li key={source.part_number} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-100 pb-3 last:border-0 last:pb-0">
+                          <div className="flex-1">
+                             <span className="truncate pr-4"><strong className="text-zinc-800">{item.part_number}</strong> - {item.item_name}</span>
+                          </div>
+                          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+                             <div className="flex items-center gap-2">
+                               <span className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider shrink-0">Source Bin:</span>
+                               <select 
+                                 className="h-8 text-xs border border-zinc-300 rounded-md w-full sm:w-32 bg-white px-2 focus:ring-1 focus:ring-zinc-900 outline-none cursor-pointer"
+                                 value={source.sourceItemIndex}
+                                 onChange={(e) => {
+                                    const newIndex = Number(e.target.value);
+                                    setSelectedSources(prev => prev.map(s => s.part_number === source.part_number ? { ...s, sourceItemIndex: newIndex } : s));
+                                 }}
+                               >
+                                 {availableBins.map(b => (
+                                   <option key={b.index} value={b.index}>{b.item.bin_location} (Bal: {b.item.quantity})</option>
+                                 ))}
+                               </select>
+                             </div>
+                             <div className="flex items-center gap-2">
+                               <span className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider shrink-0">Qty:</span>
+                               <input
+                                 type="number"
+                                 className="h-8 text-xs border border-zinc-300 rounded-md w-16 bg-white px-2 focus:ring-1 focus:ring-zinc-900 outline-none"
+                                 min="1"
+                                 max={item.quantity}
+                                 value={source.transferQty}
+                                 onChange={(e) => {
+                                    setSelectedSources(prev => prev.map(s => s.part_number === source.part_number ? { ...s, transferQty: e.target.value } : s));
+                                 }}
+                               />
+                             </div>
+                          </div>
                         </li>
                       );
                     })}
@@ -780,38 +988,47 @@ export default function StockTransfer() {
                 </div>
               )}
 
-              <div className="space-y-4 border-t border-zinc-100 pt-4 mt-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Destination Locations</label>
-                  <Button type="button" variant="outline" size="sm" onClick={addDestination}>
-                    <Plus size={14} className="mr-1" /> Add Location
+
+                <div className="flex gap-3 justify-end border-t border-zinc-100 pt-4 mt-4">
+                  <Button type="button" variant="outline" onClick={() => generatePDF(1)}>
+                    <Download size={16} className="mr-2" /> Download PDF
+                  </Button>
+                  <Button type="button" onClick={handleNextStep} disabled={isSubmitting}>
+                    {isSubmitting ? 'Saving...' : 'Next Step'} <ArrowRight size={16} className="ml-2" />
                   </Button>
                 </div>
+              </div>
+            ) : (
+              <form onSubmit={handlePostTransfer} className="space-y-4.5">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-zinc-450 uppercase tracking-wider">Destination Locations Setup</label>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setStep(1)}>
+                      Back to Step 1
+                    </Button>
+                  </div>
 
                 <div className="space-y-3">
                   {destinations.map((dest, index) => (
-                    <div key={index} className="p-3.5 bg-zinc-50 border border-zinc-200/60 rounded-lg relative space-y-3.5 group">
-                      {destinations.length > 1 && (
-                        <button 
-                          type="button" 
-                          onClick={() => removeDestination(index)}
-                          className="absolute -right-2 -top-2 bg-white hover:bg-red-50 text-red-500 rounded-full p-1 border border-zinc-200 hover:border-red-200 shadow-sm transition-colors z-10 opacity-0 group-hover:opacity-100"
-                          title="Remove location"
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                    <div key={index} className={`p-3.5 bg-zinc-50 border ${errors[`row_${index}`] ? 'border-red-300' : 'border-zinc-200/60'} rounded-lg relative space-y-3.5 group`}>
+
+
+                      {errors[`row_${index}`] && (
+                        <div className="bg-red-50 text-red-600 text-xs p-2 rounded border border-red-100 flex items-center gap-1.5">
+                           <AlertCircle size={14} className="shrink-0" />
+                           {errors[`row_${index}`]}
+                        </div>
                       )}
 
                       <div className="grid grid-cols-1">
                         <div className="space-y-1">
                           <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Transfer Item*</label>
-                          <SearchableSelect
-                            options={selectedItemsOptions}
-                            value={dest.sourceItemIndex}
-                            onChange={(val) => updateDestination(index, 'sourceItemIndex', val)}
-                            placeholder="-- Select Item --"
-                            className="h-9"
-                          />
+                          <div className="h-9 px-3 py-2 bg-zinc-100 border border-zinc-200 rounded-md text-xs text-zinc-700 flex items-center">
+                            {dest.sourceItemIndex !== '' ? (() => {
+                              const item = itemsPool[dest.sourceItemIndex as number];
+                              return <span className="font-semibold">{item.part_number} <span className="font-normal">- {item.item_name} (Source: {item.bin_location})</span></span>;
+                            })() : 'Unknown'}
+                          </div>
                         </div>
                       </div>
 
@@ -871,25 +1088,34 @@ export default function StockTransfer() {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full mt-2" disabled={posting}>
-                <RefreshCw size={16} className={`mr-2 ${posting ? 'animate-spin' : ''}`} />
-                <span>{posting ? 'Posting Voucher...' : 'Post Transfer Journal'}</span>
-              </Button>
+              <div className="flex gap-3 justify-end mt-4">
+                <Button type="button" variant="outline" onClick={() => setStep(1)}>
+                  <ArrowLeft size={16} className="mr-2" /> Back
+                </Button>
+                <Button type="button" variant="outline" onClick={() => generatePDF(2)}>
+                  <Download size={16} className="mr-2" /> PDF
+                </Button>
+                <Button type="submit" disabled={posting}>
+                  <RefreshCw size={16} className={`mr-2 ${posting ? 'animate-spin' : ''}`} />
+                  <span>{posting ? 'Posting...' : 'Post Transfer'}</span>
+                </Button>
+              </div>
             </form>
+            )}
           </CardContent>
         </Card>
 
         {/* Visual Map Pin Shortcut (takes 1/3 width) */}
-        <Card className="bg-white border border-zinc-200/80 rounded-xl shadow-sm h-full flex flex-col justify-center min-h-[320px]">
+        {/* <Card className="bg-white border border-zinc-200/80 rounded-xl shadow-sm h-full flex flex-col justify-center min-h-[320px]">
           <CardContent className="p-6 text-center">
-            {selectedSourceItems.length > 0 ? (
+            {selectedSources.length > 0 ? (
               <div className="space-y-6">
                 <div className="flex items-center gap-3 justify-center">
                   <div className="bg-zinc-50 border border-zinc-200/80 p-4 rounded-xl w-28">
                     <MapPin size={22} className="text-zinc-500 mx-auto mb-2" />
                     <div className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">From</div>
                     <strong className="block text-xs truncate mt-1 text-zinc-800">{sourceWarehouse}</strong>
-                    <span className="text-[10px] text-zinc-500">{selectedSourceItems.length} Item(s) Selected</span>
+                    <span className="text-[10px] text-zinc-500">{selectedSources.length} Item(s) Selected</span>
                   </div>
                   <ArrowRight size={20} className="text-zinc-400" />
                   <div className="bg-zinc-50 border border-zinc-200/80 p-4 rounded-xl w-28">
@@ -921,7 +1147,7 @@ export default function StockTransfer() {
               </div>
             )}
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
 
       {/* Transfer History Log Table */}

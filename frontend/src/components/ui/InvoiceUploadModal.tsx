@@ -5,6 +5,12 @@ import { Button } from "@/components/ui/button";
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 
+export interface LocationOption {
+  warehouse: string;
+  bin_location?: string;
+  quantity: number;
+}
+
 export interface UploadedInvoiceItem {
   id: string;
   part_number: string;
@@ -12,6 +18,8 @@ export interface UploadedInvoiceItem {
   status: 'PENDING' | 'AVAILABLE' | 'TRANSFER_REQUIRED' | 'PART_NOT_FOUND' | 'INVALID';
   message?: string;
   available_in_dis?: number;
+  available_locations?: LocationOption[];
+  selected_source_location_index?: number;
 }
 
 export interface UploadedInvoiceData {
@@ -185,12 +193,18 @@ export function InvoiceUploadModal({
         let disStock = 0;
         let totalOtherStock = 0;
         let otherWarehouses: string[] = [];
+        let availableLocations: LocationOption[] = [];
         
         if (invItem.locations) {
           const disLocations = invItem.locations.filter((l: any) => l.warehouse === 'DIS');
           disStock = disLocations.reduce((sum: number, loc: any) => sum + loc.quantity, 0);
           
           const otherLocs = invItem.locations.filter((l: any) => l.warehouse !== 'DIS' && l.quantity > 0);
+          availableLocations = otherLocs.map((l: any) => ({
+            warehouse: l.warehouse,
+            bin_location: l.bin_location,
+            quantity: l.quantity
+          }));
           totalOtherStock = otherLocs.reduce((sum: number, loc: any) => sum + loc.quantity, 0);
           otherWarehouses = Array.from(new Set(otherLocs.map((l: any) => l.warehouse)));
         }
@@ -222,7 +236,9 @@ export function InvoiceUploadModal({
             quantity,
             status: 'TRANSFER_REQUIRED',
             message: `Requires transfer (${disStock} in DIS). ${availabilityStr}`,
-            available_in_dis: disStock
+            available_in_dis: disStock,
+            available_locations: availableLocations,
+            selected_source_location_index: availableLocations.length > 0 ? 0 : undefined
           });
         }
       }
@@ -375,6 +391,29 @@ export function InvoiceUploadModal({
                           {item.message}
                           {item.status === 'PART_NOT_FOUND' && (
                             <a href="/stock-item-setup" target="_blank" className="ml-2 text-indigo-600 hover:underline">Setup Item ↗</a>
+                          )}
+                          {item.status === 'TRANSFER_REQUIRED' && item.available_locations && item.available_locations.length > 0 && (
+                            <div className="mt-2">
+                              <label className="text-[10px] font-semibold text-zinc-500 uppercase">Transfer From:</label>
+                              <select 
+                                className="w-full mt-1 text-xs border border-zinc-300 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-indigo-500"
+                                value={item.selected_source_location_index}
+                                onChange={(e) => {
+                                  if (!parsedData) return;
+                                  const idx = parseInt(e.target.value);
+                                  setParsedData({
+                                    ...parsedData,
+                                    items: parsedData.items.map(i => i.id === item.id ? { ...i, selected_source_location_index: idx } : i)
+                                  });
+                                }}
+                              >
+                                {item.available_locations.map((loc, idx) => (
+                                  <option key={idx} value={idx}>
+                                    {loc.warehouse} {loc.bin_location ? `- Bin: ${loc.bin_location}` : ''} (Qty: {loc.quantity})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           )}
                         </td>
                       </tr>

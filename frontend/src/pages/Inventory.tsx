@@ -1082,10 +1082,11 @@ export default function Inventory() {
               </div>
             )}
 
-            {/* Row 5: Initial Location Allocation (Optional) - Only shown when creating a new item */}
-            {!isEditing && (
-              <div className="border-t border-zinc-200 pt-3 space-y-2">
-                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">Initial Location Allocation (Optional)</span>
+            {/* Row 5: Location Allocation (Optional) - Shown for both new items and editing */}
+            <div className="border-t border-zinc-200 pt-3 space-y-2">
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block">
+                {isEditing ? "Add Stock Allocation (Optional)" : "Initial Location Allocation (Optional)"}
+              </span>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <label className="text-[9px] font-semibold text-zinc-400">Warehouse</label>
@@ -1128,7 +1129,6 @@ export default function Inventory() {
                   </div>
                 </div>
               </div>
-            )}
 
             <Button type="submit" className="w-full mt-2" disabled={formLoading}>
               {formLoading ? 'Saving...' : (isEditing ? 'Update Stock Item' : 'Save Stock Record')}

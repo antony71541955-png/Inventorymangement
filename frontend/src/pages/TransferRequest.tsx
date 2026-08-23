@@ -30,6 +30,7 @@ interface PicklistData {
   id: number;
   customer_id: number;
   customer_name: string;
+  invoice_number?: string;
   status: string;
   created_at: string;
   transfer_status?: string;
@@ -55,6 +56,7 @@ export default function TransferRequest() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [invoiceNumber, setInvoiceNumber] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   
   // Inventory Search State
@@ -222,6 +224,7 @@ export default function TransferRequest() {
     setEditingPicklistTransferStatus(null);
     setEditingPicklistRejectionReason(null);
     setEditingPicklistOverallStatus(null);
+    setInvoiceNumber('');
     setItemStatuses({});
   };
 
@@ -232,6 +235,7 @@ export default function TransferRequest() {
     setEditingPicklistTransferStatus(picklist.transfer_status || null);
     setEditingPicklistRejectionReason(picklist.transfer_rejection_reason || null);
     setEditingPicklistOverallStatus(picklist.status || null);
+    setInvoiceNumber(picklist.invoice_number || '');
     
     // Set Customer
     const cust = customers.find(c => c.id === picklist.customer_id);
@@ -370,6 +374,7 @@ export default function TransferRequest() {
         },
         body: JSON.stringify({
           customer_id: selectedCustomer.id,
+          invoice_number: invoiceNumber,
           items: itemsPayload
         })
       });
@@ -626,6 +631,21 @@ export default function TransferRequest() {
               )}
             </div>
           </div>
+            
+            {selectedCustomer && (
+              <div className="px-6 pb-6 border-b border-zinc-100">
+                <div className="max-w-md">
+                  <label className="block text-sm font-medium text-zinc-700 mb-1">Invoice Number (Optional)</label>
+                  <input
+                    type="text"
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    placeholder="Enter Invoice Number"
+                    className="w-full px-4 py-2 bg-white border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+            )}
 
           <div className="p-6 bg-zinc-50/50">
             <h2 className="text-lg font-semibold text-zinc-800 mb-4">2. Select Inventories</h2>
