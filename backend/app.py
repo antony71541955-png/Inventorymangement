@@ -10,9 +10,15 @@ from flask_cors import CORS
 import json
 import bcrypt
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='/')
-# --- CORS: allow localhost in dev and the deployed frontend in production ---
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
-CORS(app, origins=[FRONTEND_URL, "http://localhost:5173", "http://localhost:4173"])
+# --- CORS: allow localhost, 127.0.0.1, LAN IPs, and deployed domains ---
+CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type", "Authorization", "X-Requested-With"])
+
+@app.after_request
+def after_request_cors(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    return response
 
 # Configuration
 # On Render, use the mounted persistent disk at /data; fallback to local for dev
@@ -3006,6 +3012,220 @@ def update_internal_transfer(id):
         conn.rollback()
         conn.close()
         return jsonify({"error": str(e)}), 500
+
+# --- DATABASE MAINTENANCE & SYSTEM RESET (SUPERADMIN ONLY) ---
+@app.route('/api/admin/db-stats', methods=['GET'])
+@login_required
+def get_db_stats():
+    if request.user["role"] != "superadmin":
+        return jsonify({"error": "Unauthorized. Only superadmin can access system statistics."}), 403
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    def count_table(table_name):
+        try:
+            c.execute(f"SELECT COUNT(*) FROM {table_name}")
+            return c.fetchone()[0]
+        except Exception:
+            return 0
+            
+    stats = {
+        "items": count_table("items"),
+        "stock_balances": count_table("stock_balances"),
+        "stock_journal": count_table("stock_journal"),
+        "warehouses": count_table("warehouses"),
+        "bins": count_table("bins"),
+        "customers": count_table("customers"),
+        "picklists": count_table("picklists"),
+        "picklist_items": count_table("picklist_items"),
+        "dispatch_picklists": count_table("dispatch_picklists"),
+        "dispatch_picklist_items": count_table("dispatch_picklist_items"),
+        "internal_transfer_requests": count_table("internal_transfer_requests"),
+        "internal_transfer_request_items": count_table("internal_transfer_request_items"),
+        "notifications": count_table("notifications"),
+        "users": count_table("users"),
+    }
+    
+    # Check superadmin details
+    c.execute("SELECT id, username, full_name, role FROM users WHERE role = 'superadmin' OR username = 'superadmin' LIMIT 1")
+    sa = c.fetchone()
+    superadmin_info = dict(sa) if sa else None
+    
+    conn.close()
+    
+    # DB File Size
+    db_size_bytes = os.path.getsize(DB_NAME) if os.path.exists(DB_NAME) else 0
+    db_size_mb = round(db_size_bytes / (1024 * 1024), 2)
+    
+    # Uploaded files count and size
+    upload_files_count = 0
+    upload_size_bytes = 0
+    if os.path.exists(UPLOAD_FOLDER):
+        for f in os.listdir(UPLOAD_FOLDER):
+            fp = os.path.join(UPLOAD_FOLDER, f)
+            if os.path.isfile(fp):
+                upload_files_count += 1
+                upload_size_bytes += os.path.getsize(fp)
+    upload_size_mb = round(upload_size_bytes / (1024 * 1024), 2)
+    
+    return jsonify({
+        "stats": stats,
+        "db_size_mb": db_size_mb,
+        "upload_files_count": upload_files_count,
+        "upload_size_mb": upload_size_mb,
+        "superadmin": superadmin_info,
+        "db_path": DB_NAME
+    }), 200
+
+@app.route('/api/admin/clear-database', methods=['POST'])
+def clear_database_endpoint():
+    data = request.json or {}
+    current_password = data.get("current_password")
+    new_password = data.get("new_password")
+    
+    # Check auth: either via session token or direct credentials
+    user = get_current_user()
+    if not user:
+        # Check credentials in body
+        username = data.get("username", "").strip().lower()
+        if not username or not current_password:
+            return jsonify({"error": "Authentication required. Please provide superadmin credentials."}), 401
+        
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE username = ?", (username,))
+        u = c.fetchone()
+        conn.close()
+        
+        if not u or u["role"] != "superadmin":
+            return jsonify({"error": "Unauthorized. Only superadmin can clear database."}), 403
+        if not bcrypt.checkpw(current_password.encode('utf-8'), u["password_hash"].encode('utf-8')):
+            return jsonify({"error": "Invalid superadmin password."}), 401
+        
+        user_id = u["id"]
+        user_name = u["username"]
+        superadmin_row = u
+    else:
+        if user["role"] != "superadmin":
+            return jsonify({"error": "Unauthorized. Only superadmin can clear database."}), 403
+            
+        if not current_password:
+            return jsonify({"error": "Please provide your current superadmin password to confirm."}), 400
+            
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE id = ?", (user["id"],))
+        superadmin_row = c.fetchone()
+        conn.close()
+        
+        if not superadmin_row or not bcrypt.checkpw(current_password.encode('utf-8'), superadmin_row["password_hash"].encode('utf-8')):
+            return jsonify({"error": "Invalid current superadmin password. Operation aborted."}), 401
+            
+        user_id = superadmin_row["id"]
+        user_name = superadmin_row["username"]
+
+    # Validate new password if provided
+    if new_password:
+        if len(new_password) < 6:
+            return jsonify({"error": "New password must be at least 6 characters long."}), 400
+
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        # Disable foreign keys temporarily
+        c.execute("PRAGMA foreign_keys = OFF")
+        
+        # Tables to clear
+        tables_to_clear = [
+            "stock_journal",
+            "stock_balances",
+            "dispatch_picklist_items",
+            "dispatch_picklists",
+            "picklist_items",
+            "picklists",
+            "internal_transfer_request_items",
+            "internal_transfer_requests",
+            "notifications",
+            "items",
+            "bins",
+            "warehouses",
+            "customers"
+        ]
+        
+        cleared_summary = {}
+        for table in tables_to_clear:
+            try:
+                c.execute(f"SELECT COUNT(*) FROM {table}")
+                cnt = c.fetchone()[0]
+                c.execute(f"DELETE FROM {table}")
+                cleared_summary[table] = cnt
+            except Exception as e:
+                cleared_summary[table] = 0
+                
+        # Preserve superadmin: delete all non-superadmin users
+        c.execute("SELECT COUNT(*) FROM users WHERE id != ?", (user_id,))
+        users_deleted = c.fetchone()[0]
+        c.execute("DELETE FROM users WHERE id != ?", (user_id,))
+        cleared_summary["other_users"] = users_deleted
+        
+        # Delete sessions of deleted users
+        c.execute("DELETE FROM sessions WHERE user_id != ?", (user_id,))
+        
+        # Reset autoincrement counters in sqlite_sequence
+        for table in tables_to_clear:
+            try:
+                c.execute("DELETE FROM sqlite_sequence WHERE name = ?", (table,))
+            except Exception:
+                pass
+                
+        # Update superadmin password if requested
+        password_updated = False
+        if new_password:
+            new_hash = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            c.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user_id))
+            password_updated = True
+            
+        # Re-enable foreign keys
+        c.execute("PRAGMA foreign_keys = ON")
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        return jsonify({"error": f"Failed to clear database: {str(e)}"}), 500
+        
+    conn.close()
+    
+    # Reclaim disk space with VACUUM
+    try:
+        vac_conn = sqlite3.connect(DB_NAME)
+        vac_conn.execute("VACUUM")
+        vac_conn.close()
+    except Exception as e:
+        print(f"VACUUM note: {e}")
+        
+    # Clean up uploaded files in UPLOAD_FOLDER
+    files_deleted = 0
+    if os.path.exists(UPLOAD_FOLDER):
+        for fname in os.listdir(UPLOAD_FOLDER):
+            fpath = os.path.join(UPLOAD_FOLDER, fname)
+            if os.path.isfile(fpath):
+                try:
+                    os.remove(fpath)
+                    files_deleted += 1
+                except Exception:
+                    pass
+    cleared_summary["uploaded_files"] = files_deleted
+    
+    return jsonify({
+        "success": True,
+        "message": "All database business data has been successfully cleared. Superadmin credentials preserved.",
+        "password_updated": password_updated,
+        "cleared_summary": cleared_summary,
+        "superadmin_username": user_name
+    }), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

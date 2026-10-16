@@ -19,7 +19,8 @@ import {
   Users as UsersIcon,
   History,
   ClipboardList,
-  CheckCircle
+  CheckCircle,
+  Trash2
 } from 'lucide-react';
 
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -42,9 +43,15 @@ import Picklist from './pages/Picklist';
 
 import Notifications from './pages/Notifications';
 import QualityCheck from './pages/QualityCheck';
+import ClearDatabase from './pages/ClearDatabase';
 
 // Constants — uses VITE_API_URL env var in production (set in Render dashboard)
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// In development, automatically adapt to whatever host the browser used (localhost, 127.0.0.1, or LAN IP)
+export const API_URL = import.meta.env.VITE_API_URL || (
+  typeof window !== 'undefined' && window.location.hostname
+    ? `http://${window.location.hostname}:5000`
+    : 'http://localhost:5000'
+);
 
 // Global Fetch Interceptor to include JWT token
 const originalFetch = window.fetch;
@@ -52,10 +59,11 @@ window.fetch = async (input, init) => {
   const storedToken = sessionStorage.getItem('token');
   if (storedToken) {
     init = init || {};
-    init.headers = {
-      ...init.headers,
-      'Authorization': `Bearer ${storedToken}`,
-    };
+    const headers = new Headers(init.headers || {});
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${storedToken}`);
+    }
+    init.headers = headers;
   }
   return originalFetch(input, init);
 };
@@ -414,6 +422,8 @@ function Layout() {
               <>
                 <Route path="/users" element={<Users />} />
                 <Route path="/audit-logs" element={<AuditLogs />} />
+                <Route path="/cleardatabase" element={<ClearDatabase />} />
+                <Route path="/clear-database" element={<ClearDatabase />} />
               </>
             )}
             <Route path="*" element={<Navigate to="/" replace />} />
