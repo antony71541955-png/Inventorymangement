@@ -60,7 +60,8 @@ window.fetch = async (input, init) => {
   if (storedToken) {
     init = init || {};
     const headers = new Headers(init.headers || {});
-    if (!headers.has('Authorization')) {
+    const authHeader = headers.get('Authorization');
+    if (!headers.has('Authorization') || authHeader === 'Bearer null' || authHeader === 'Bearer undefined' || !authHeader) {
       headers.set('Authorization', `Bearer ${storedToken}`);
     }
     init.headers = headers;

@@ -29,7 +29,7 @@ interface CustomerItem {
 }
 
 export default function Customers() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [customersList, setCustomersList] = useState<CustomerItem[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -61,9 +61,7 @@ export default function Customers() {
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/customers`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       if (!response.ok) {
         throw new Error('Failed to fetch customers.');
@@ -105,7 +103,7 @@ export default function Customers() {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           customer_name: customerName,
@@ -150,9 +148,7 @@ export default function Customers() {
     try {
       const response = await fetch(`${API_URL}/api/customers/bulk`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData,
       });
 
@@ -212,7 +208,7 @@ export default function Customers() {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           customer_name: editCustomerName,
