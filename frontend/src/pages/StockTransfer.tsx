@@ -785,6 +785,7 @@ export default function StockTransfer() {
           groupedByDest[wh].push(d);
         }
 
+        let isFirstDest = true;
         for (const [destWh, destList] of Object.entries(groupedByDest)) {
           const itemsPayload = destList.map(dest => {
             const sourceItem = itemsPool[dest.sourceItemIndex as number];
@@ -797,6 +798,10 @@ export default function StockTransfer() {
             };
           });
 
+          const currentTrId = isFirstDest ? trId : undefined;
+          const currentTrNum = isFirstDest ? trNumber : undefined;
+          isFirstDest = false;
+
           const res = await fetch(`${API_URL}/api/internal-transfers/submit`, {
             method: 'POST',
             headers: {
@@ -804,10 +809,11 @@ export default function StockTransfer() {
               Authorization: `Bearer ${token}`
             },
             body: JSON.stringify({
-              tr_number: trNumber,
+              tr_id: currentTrId,
+              tr_number: currentTrNum,
               source_warehouse: sourceWarehouse,
               destination_warehouse: destWh,
-              remarks: destList[0]?.remarks?.trim() || `Inter-warehouse transfer ${trNumber}`,
+              remarks: destList[0]?.remarks?.trim() || `Inter-warehouse transfer ${currentTrNum || ''}`,
               items: itemsPayload
             })
           });

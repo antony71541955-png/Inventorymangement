@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import uuid
 import sqlite3
 import pandas as pd
@@ -2937,28 +2938,36 @@ def serve(path):
 
 
 # --- INTERNAL TRANSFER REQUEST & TRANSFER INBOX API ---
+def generate_unique_tr_number(c, warehouse=''):
+    c.execute("SELECT tr_number FROM internal_transfer_requests")
+    rows = c.fetchall()
+    max_num = 0
+    for r in rows:
+        val = r['tr_number'] if isinstance(r, sqlite3.Row) else r[0]
+        match = re.search(r'TR-(\d+)', val or '')
+        if match:
+            n = int(match.group(1))
+            if n > max_num:
+                max_num = n
+    next_num = max_num + 1
+    clean_wh = warehouse.strip() if warehouse else ''
+    while True:
+        candidate = f"TR-{next_num:04d}-{clean_wh}" if clean_wh else f"TR-{next_num:04d}"
+        c.execute("SELECT 1 FROM internal_transfer_requests WHERE tr_number = ?", (candidate,))
+        if not c.fetchone():
+            return candidate
+        next_num += 1
+
 @app.route('/api/internal-transfers/next-number', methods=['GET'])
 @login_required
 def get_next_internal_transfer_number():
-    warehouse = request.args.get('warehouse', '')
+    warehouse = request.args.get('warehouse', '').strip()
         
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute("SELECT tr_number FROM internal_transfer_requests ORDER BY id DESC LIMIT 1")
-    row = c.fetchone()
+    tr_number = generate_unique_tr_number(c, warehouse)
     conn.close()
     
-    next_num = 1
-    if row:
-        parts = row['tr_number'].split('-')
-        if len(parts) >= 2 and parts[1].isdigit():
-            next_num = int(parts[1]) + 1
-            
-    if warehouse:
-        tr_number = f"TR-{next_num:04d}-{warehouse}"
-    else:
-        tr_number = f"TR-{next_num:04d}"
-        
     return jsonify({"tr_number": tr_number}), 200
 
 @app.route('/api/transfer-inbox', methods=['GET'])
@@ -3137,7 +3146,8 @@ def get_internal_transfer(id):
 @login_required
 def submit_internal_transfer():
     data = request.json or {}
-    tr_number = data.get('tr_number')
+    tr_id = data.get('tr_id')
+    tr_number = data.get('tr_number', '').strip() if data.get('tr_number') else None
     source_warehouse = data.get('source_warehouse', '').strip()
     destination_warehouse = data.get('destination_warehouse', '').strip()
     remarks = data.get('remarks', 'Inter-Warehouse Stock Transfer').strip()
@@ -3184,24 +3194,39 @@ def submit_internal_transfer():
                 c.execute("UPDATE stock_balances SET quantity = ? WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
                           (new_qty, p_num, source_warehouse, s_bin))
                           
-        # Generate TR Number if not supplied
-        if not tr_number:
-            c.execute("SELECT tr_number FROM internal_transfer_requests ORDER BY id DESC LIMIT 1")
-            last_row = c.fetchone()
-            next_num = 1
-            if last_row:
-                parts = last_row['tr_number'].split('-')
-                if len(parts) >= 2 and parts[1].isdigit():
-                    next_num = int(parts[1]) + 1
-            tr_number = f"TR-{next_num:04d}-{source_warehouse}"
+        # Determine whether we are finalizing an existing Draft or creating a new request
+        existing_draft = None
+        if tr_id:
+            c.execute("SELECT * FROM internal_transfer_requests WHERE id = ?", (tr_id,))
+            existing_draft = c.fetchone()
+        elif tr_number:
+            c.execute("SELECT * FROM internal_transfer_requests WHERE tr_number = ?", (tr_number,))
+            existing_draft = c.fetchone()
             
-        # Insert into internal_transfer_requests
-        c.execute('''
-            INSERT INTO internal_transfer_requests 
-            (tr_number, source_warehouse, destination_warehouse, created_by, status, remarks)
-            VALUES (?, ?, ?, ?, 'Pending Approval', ?)
-        ''', (tr_number, source_warehouse, destination_warehouse, request.user['full_name'], remarks))
-        request_id = c.lastrowid
+        if existing_draft and existing_draft['status'] == 'Draft':
+            request_id = existing_draft['id']
+            tr_number = existing_draft['tr_number']
+            c.execute('''
+                UPDATE internal_transfer_requests 
+                SET destination_warehouse = ?, created_by = ?, status = 'Pending Approval', remarks = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (destination_warehouse, request.user['full_name'], remarks, request_id))
+            c.execute("DELETE FROM internal_transfer_request_items WHERE request_id = ?", (request_id,))
+        else:
+            # Need to insert a new request - ensure tr_number is unique
+            if tr_number:
+                c.execute("SELECT 1 FROM internal_transfer_requests WHERE tr_number = ?", (tr_number,))
+                if c.fetchone():
+                    tr_number = generate_unique_tr_number(c, source_warehouse)
+            else:
+                tr_number = generate_unique_tr_number(c, source_warehouse)
+                
+            c.execute('''
+                INSERT INTO internal_transfer_requests 
+                (tr_number, source_warehouse, destination_warehouse, created_by, status, remarks)
+                VALUES (?, ?, ?, ?, 'Pending Approval', ?)
+            ''', (tr_number, source_warehouse, destination_warehouse, request.user['full_name'], remarks))
+            request_id = c.lastrowid
         
         # Insert items
         for item in items:
@@ -3495,7 +3520,7 @@ def create_internal_transfer():
     destination_warehouse = data.get('destination_warehouse')
     items = data.get('items', [])
     
-    if not tr_number or not source_warehouse or not items:
+    if not source_warehouse or not items:
         return jsonify({"error": "Missing required fields"}), 400
         
     conn = get_db_connection()
@@ -3503,12 +3528,37 @@ def create_internal_transfer():
     
     try:
         c.execute("BEGIN TRANSACTION")
-        c.execute('''
-            INSERT INTO internal_transfer_requests (tr_number, source_warehouse, destination_warehouse, status)
-            VALUES (?, ?, ?, 'Draft')
-        ''', (tr_number, source_warehouse, destination_warehouse))
         
-        request_id = c.lastrowid
+        # Check if existing request with this tr_number exists
+        existing_draft = None
+        if tr_number:
+            c.execute("SELECT id, status FROM internal_transfer_requests WHERE tr_number = ?", (tr_number,))
+            existing_draft = c.fetchone()
+            
+        if existing_draft:
+            if existing_draft['status'] == 'Draft':
+                request_id = existing_draft['id']
+                c.execute('''
+                    UPDATE internal_transfer_requests 
+                    SET source_warehouse = ?, destination_warehouse = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (source_warehouse, destination_warehouse, request_id))
+                c.execute("DELETE FROM internal_transfer_request_items WHERE request_id = ?", (request_id,))
+            else:
+                tr_number = generate_unique_tr_number(c, source_warehouse)
+                c.execute('''
+                    INSERT INTO internal_transfer_requests (tr_number, source_warehouse, destination_warehouse, status)
+                    VALUES (?, ?, ?, 'Draft')
+                ''', (tr_number, source_warehouse, destination_warehouse))
+                request_id = c.lastrowid
+        else:
+            if not tr_number:
+                tr_number = generate_unique_tr_number(c, source_warehouse)
+            c.execute('''
+                INSERT INTO internal_transfer_requests (tr_number, source_warehouse, destination_warehouse, status)
+                VALUES (?, ?, ?, 'Draft')
+            ''', (tr_number, source_warehouse, destination_warehouse))
+            request_id = c.lastrowid
         
         for item in items:
             c.execute('''
