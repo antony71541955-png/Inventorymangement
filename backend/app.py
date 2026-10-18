@@ -354,6 +354,32 @@ def init_db():
     c.execute("UPDATE stock_balances SET batch_no = '' WHERE batch_no IS NULL")
     c.execute("UPDATE stock_balances SET expiry = '' WHERE expiry IS NULL")
 
+    # Ensure columns exist in internal_transfer_requests
+    c.execute("PRAGMA table_info(internal_transfer_requests)")
+    itr_cols = [row[1] for row in c.fetchall()]
+    if "destination_warehouse" not in itr_cols:
+        c.execute("ALTER TABLE internal_transfer_requests ADD COLUMN destination_warehouse TEXT")
+    if "created_by" not in itr_cols:
+        c.execute("ALTER TABLE internal_transfer_requests ADD COLUMN created_by TEXT")
+    if "approved_by" not in itr_cols:
+        c.execute("ALTER TABLE internal_transfer_requests ADD COLUMN approved_by TEXT")
+    if "approved_at" not in itr_cols:
+        c.execute("ALTER TABLE internal_transfer_requests ADD COLUMN approved_at TIMESTAMP")
+    if "remarks" not in itr_cols:
+        c.execute("ALTER TABLE internal_transfer_requests ADD COLUMN remarks TEXT")
+
+    # Ensure columns exist in internal_transfer_request_items
+    c.execute("PRAGMA table_info(internal_transfer_request_items)")
+    itri_cols = [row[1] for row in c.fetchall()]
+    if "target_bin" not in itri_cols:
+        c.execute("ALTER TABLE internal_transfer_request_items ADD COLUMN target_bin TEXT")
+    if "accepted_bin" not in itri_cols:
+        c.execute("ALTER TABLE internal_transfer_request_items ADD COLUMN accepted_bin TEXT")
+    if "batch_no" not in itri_cols:
+        c.execute("ALTER TABLE internal_transfer_request_items ADD COLUMN batch_no TEXT DEFAULT ''")
+    if "expiry" not in itri_cols:
+        c.execute("ALTER TABLE internal_transfer_request_items ADD COLUMN expiry TEXT DEFAULT ''")
+
     c.execute("PRAGMA table_info(users)")
     user_cols = [row[1] for row in c.fetchall()]
     if "warehouse_code" not in user_cols:
@@ -2910,7 +2936,7 @@ def serve(path):
         return "Frontend build not found.", 404
 
 
-# --- INTERNAL TRANSFER REQUEST API ---
+# --- INTERNAL TRANSFER REQUEST & TRANSFER INBOX API ---
 @app.route('/api/internal-transfers/next-number', methods=['GET'])
 @login_required
 def get_next_internal_transfer_number():
@@ -2935,12 +2961,538 @@ def get_next_internal_transfer_number():
         
     return jsonify({"tr_number": tr_number}), 200
 
+@app.route('/api/transfer-inbox', methods=['GET'])
+@login_required
+def get_transfer_inbox():
+    user = request.user
+    inbox_type = request.args.get('type', 'incoming')  # 'incoming' or 'outgoing'
+    status_filter = request.args.get('status', '')
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    query = '''
+        SELECT itr.id, itr.tr_number, itr.source_warehouse, itr.destination_warehouse,
+               itr.created_by, itr.approved_by, itr.approved_at, itr.remarks, itr.status,
+               itr.created_at, itr.updated_at,
+               COUNT(itri.id) as total_items,
+               COALESCE(SUM(itri.quantity), 0) as total_quantity
+        FROM internal_transfer_requests itr
+        LEFT JOIN internal_transfer_request_items itri ON itr.id = itri.request_id
+    '''
+    
+    conditions = []
+    params = []
+    
+    if user['role'] == 'warehouse_admin':
+        wh = user.get('warehouse_code') or ''
+        if inbox_type == 'outgoing':
+            conditions.append("itr.source_warehouse = ?")
+            params.append(wh)
+        else:  # incoming
+            conditions.append("itr.destination_warehouse = ?")
+            params.append(wh)
+    else:  # superadmin / admin
+        wh_param = request.args.get('warehouse')
+        if wh_param:
+            if inbox_type == 'outgoing':
+                conditions.append("itr.source_warehouse = ?")
+                params.append(wh_param)
+            else:
+                conditions.append("itr.destination_warehouse = ?")
+                params.append(wh_param)
+            
+    if status_filter:
+        conditions.append("itr.status = ?")
+        params.append(status_filter)
+        
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+        
+    query += " GROUP BY itr.id ORDER BY itr.created_at DESC"
+    
+    c.execute(query, params)
+    rows = c.fetchall()
+    transfers = [dict(r) for r in rows]
+    
+    # Items preview for each request
+    for t in transfers:
+        c.execute('''
+            SELECT id, part_number, item_name, quantity, source_bin, target_bin, accepted_bin
+            FROM internal_transfer_request_items
+            WHERE request_id = ?
+        ''', (t['id'],))
+        t['items'] = [dict(i) for i in c.fetchall()]
+        
+    # Statistical counts
+    wh_filter = user.get('warehouse_code') if user['role'] == 'warehouse_admin' else None
+    
+    if wh_filter:
+        c.execute("SELECT COUNT(*) FROM internal_transfer_requests WHERE destination_warehouse = ? AND status = 'Pending Approval'", (wh_filter,))
+        pending_incoming = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM internal_transfer_requests WHERE destination_warehouse = ?", (wh_filter,))
+        total_incoming = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM internal_transfer_requests WHERE source_warehouse = ?", (wh_filter,))
+        total_outgoing = c.fetchone()[0]
+    else:
+        c.execute("SELECT COUNT(*) FROM internal_transfer_requests WHERE status = 'Pending Approval'")
+        pending_incoming = c.fetchone()[0]
+        c.execute("SELECT COUNT(*) FROM internal_transfer_requests")
+        total_incoming = c.fetchone()[0]
+        total_outgoing = total_incoming
+
+    conn.close()
+    return jsonify({
+        "transfers": transfers,
+        "counts": {
+            "pending_incoming": pending_incoming,
+            "total_incoming": total_incoming,
+            "total_outgoing": total_outgoing
+        }
+    }), 200
+
+@app.route('/api/transfer-inbox/unread-count', methods=['GET'])
+@login_required
+def get_transfer_inbox_unread_count():
+    user = request.user
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    if user['role'] == 'warehouse_admin' and user.get('warehouse_code'):
+        c.execute('''
+            SELECT COUNT(*) FROM internal_transfer_requests 
+            WHERE destination_warehouse = ? AND status = 'Pending Approval'
+        ''', (user['warehouse_code'],))
+    else:
+        c.execute('''
+            SELECT COUNT(*) FROM internal_transfer_requests 
+            WHERE status = 'Pending Approval'
+        ''')
+    count = c.fetchone()[0]
+    conn.close()
+    return jsonify({"count": count}), 200
+
+@app.route('/api/internal-transfers/<int:id>', methods=['GET'])
+@login_required
+def get_internal_transfer(id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    c.execute('''
+        SELECT itr.*, 
+               COUNT(itri.id) as total_items,
+               COALESCE(SUM(itri.quantity), 0) as total_quantity
+        FROM internal_transfer_requests itr
+        LEFT JOIN internal_transfer_request_items itri ON itr.id = itri.request_id
+        WHERE itr.id = ?
+        GROUP BY itr.id
+    ''', (id,))
+    row = c.fetchone()
+    
+    if not row:
+        conn.close()
+        return jsonify({"error": "Transfer request not found"}), 404
+        
+    transfer = dict(row)
+    
+    c.execute('''
+        SELECT id, request_id, part_number, item_name, quantity, source_bin, target_bin, accepted_bin, batch_no, expiry
+        FROM internal_transfer_request_items
+        WHERE request_id = ?
+        ORDER BY id ASC
+    ''', (id,))
+    transfer['items'] = [dict(i) for i in c.fetchall()]
+    
+    # Destination bins: find all bins belonging to destination warehouse
+    dest_wh = transfer.get('destination_warehouse') or ''
+    available_bins = []
+    if dest_wh:
+        # Bins from bins table
+        c.execute('''
+            SELECT b.code 
+            FROM bins b
+            JOIN warehouses w ON b.warehouse_id = w.id
+            WHERE w.code = ?
+            ORDER BY b.code
+        ''', (dest_wh,))
+        bins_from_table = [r['code'] for r in c.fetchall()]
+        
+        # Bins from stock_balances
+        c.execute('''
+            SELECT DISTINCT bin_location 
+            FROM stock_balances 
+            WHERE warehouse = ? AND bin_location IS NOT NULL AND bin_location != ''
+            ORDER BY bin_location
+        ''', (dest_wh,))
+        bins_from_stock = [r['bin_location'] for r in c.fetchall()]
+        
+        available_bins = sorted(list(set(bins_from_table + bins_from_stock)))
+        
+    transfer['available_bins'] = available_bins
+    
+    conn.close()
+    return jsonify(transfer), 200
+
+@app.route('/api/internal-transfers/submit', methods=['POST'])
+@login_required
+def submit_internal_transfer():
+    data = request.json or {}
+    tr_number = data.get('tr_number')
+    source_warehouse = data.get('source_warehouse', '').strip()
+    destination_warehouse = data.get('destination_warehouse', '').strip()
+    remarks = data.get('remarks', 'Inter-Warehouse Stock Transfer').strip()
+    items = data.get('items', [])
+    
+    if not source_warehouse or not destination_warehouse or not items:
+        return jsonify({"error": "Source warehouse, destination warehouse, and items are required"}), 400
+        
+    if source_warehouse == destination_warehouse:
+        return jsonify({"error": "Destination warehouse must be different from source warehouse for inter-warehouse transfer requests."}), 400
+        
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        c.execute("BEGIN TRANSACTION")
+        
+        # Validate stock availability at source warehouse & bin for all items
+        for item in items:
+            p_num = item.get('part_number', '').strip().upper()
+            s_bin = item.get('source_bin', '').strip()
+            qty = int(item.get('quantity', 0))
+            
+            if not p_num or not s_bin or qty <= 0:
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Invalid item details for {p_num}. Positive quantity and source bin are required."}), 400
+                
+            c.execute("SELECT quantity FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                      (p_num, source_warehouse, s_bin))
+            stock_row = c.fetchone()
+            if not stock_row or stock_row['quantity'] < qty:
+                avail = stock_row['quantity'] if stock_row else 0
+                c.execute("ROLLBACK")
+                conn.close()
+                return jsonify({"error": f"Insufficient stock for {p_num} in {source_warehouse} (Bin: {s_bin}). Available: {avail}, Requested: {qty}"}), 400
+                
+            # Deduct stock immediately from source warehouse and bin (put into in-transit)
+            new_qty = stock_row['quantity'] - qty
+            if new_qty == 0:
+                c.execute("DELETE FROM stock_balances WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                          (p_num, source_warehouse, s_bin))
+            else:
+                c.execute("UPDATE stock_balances SET quantity = ? WHERE part_number = ? AND warehouse = ? AND bin_location = ?", 
+                          (new_qty, p_num, source_warehouse, s_bin))
+                          
+        # Generate TR Number if not supplied
+        if not tr_number:
+            c.execute("SELECT tr_number FROM internal_transfer_requests ORDER BY id DESC LIMIT 1")
+            last_row = c.fetchone()
+            next_num = 1
+            if last_row:
+                parts = last_row['tr_number'].split('-')
+                if len(parts) >= 2 and parts[1].isdigit():
+                    next_num = int(parts[1]) + 1
+            tr_number = f"TR-{next_num:04d}-{source_warehouse}"
+            
+        # Insert into internal_transfer_requests
+        c.execute('''
+            INSERT INTO internal_transfer_requests 
+            (tr_number, source_warehouse, destination_warehouse, created_by, status, remarks)
+            VALUES (?, ?, ?, ?, 'Pending Approval', ?)
+        ''', (tr_number, source_warehouse, destination_warehouse, request.user['full_name'], remarks))
+        request_id = c.lastrowid
+        
+        # Insert items
+        for item in items:
+            c.execute('''
+                INSERT INTO internal_transfer_request_items 
+                (request_id, part_number, item_name, quantity, source_bin, target_bin, batch_no, expiry)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                request_id,
+                item.get('part_number', '').strip().upper(),
+                item.get('item_name', '').strip(),
+                int(item.get('quantity', 0)),
+                item.get('source_bin', '').strip(),
+                item.get('target_bin', '').strip() if item.get('target_bin') else None,
+                item.get('batch_no', ''),
+                item.get('expiry', '')
+            ))
+            
+        # Create notifications for Warehouse Admin(s) of destination_warehouse
+        c.execute("SELECT id FROM users WHERE role = 'warehouse_admin' AND warehouse_code = ?", (destination_warehouse,))
+        dest_admins = c.fetchall()
+        for admin in dest_admins:
+            c.execute('''
+                INSERT INTO notifications (target_user_id, title, message, related_entity_type, related_entity_id)
+                VALUES (?, ?, ?, 'transfer_request', ?)
+            ''', (
+                admin['id'],
+                'New Transfer Request',
+                f'Transfer Request {tr_number} from {source_warehouse} ({len(items)} items) is awaiting your approval in Transfer Inbox.',
+                request_id
+            ))
+            
+        c.execute("COMMIT")
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            "success": True, 
+            "id": request_id, 
+            "tr_number": tr_number,
+            "message": f"Transfer Request {tr_number} sent to {destination_warehouse} for approval."
+        }), 201
+        
+    except Exception as e:
+        c.execute("ROLLBACK")
+        conn.close()
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to submit transfer request: {str(e)}"}), 500
+
+@app.route('/api/internal-transfers/<int:id>/accept', methods=['POST'])
+@login_required
+def accept_internal_transfer(id):
+    data = request.json or {}
+    items_allocation = data.get('items', [])  # [{ id: itemId, accepted_bin: 'BIN-1' }, ...]
+    acceptance_remarks = data.get('remarks', '').strip()
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        c.execute("SELECT * FROM internal_transfer_requests WHERE id = ?", (id,))
+        req_row = c.fetchone()
+        if not req_row:
+            conn.close()
+            return jsonify({"error": "Transfer request not found"}), 404
+            
+        if req_row['status'] == 'Accepted':
+            conn.close()
+            return jsonify({"error": "This transfer request has already been accepted."}), 400
+            
+        if req_row['status'] == 'Rejected':
+            conn.close()
+            return jsonify({"error": "This transfer request has been rejected."}), 400
+            
+        dest_wh = req_row['destination_warehouse']
+        
+        # Authorization check: must be admin of destination_warehouse or superadmin
+        if request.user['role'] == 'warehouse_admin' and request.user.get('warehouse_code') != dest_wh:
+            conn.close()
+            return jsonify({"error": f"Unauthorized. Only warehouse admins for {dest_wh} can approve this transfer."}), 403
+            
+        # Fetch items
+        c.execute("SELECT * FROM internal_transfer_request_items WHERE request_id = ?", (id,))
+        items = c.fetchall()
+        
+        if not items:
+            conn.close()
+            return jsonify({"error": "No items found for this transfer request"}), 400
+            
+        # Map item allocations
+        alloc_map = {}
+        for alloc in items_allocation:
+            alloc_map[alloc.get('id')] = (alloc.get('accepted_bin') or '').strip().upper()
+            
+        # Validate that all items have an accepted_bin
+        for item in items:
+            accepted_bin = alloc_map.get(item['id']) or (item['target_bin'] or '').strip().upper()
+            if not accepted_bin:
+                conn.close()
+                return jsonify({"error": f"Please select a destination bin for item {item['part_number']} ({item['item_name']})."}), 400
+                
+        c.execute("BEGIN TRANSACTION")
+        
+        vouchers = []
+        for item in items:
+            accepted_bin = alloc_map.get(item['id']) or (item['target_bin'] or '').strip().upper()
+            qty = item['quantity']
+            part_number = item['part_number']
+            batch_no = item['batch_no'] or ''
+            expiry = item['expiry'] or ''
+            
+            # Update accepted_bin in item record
+            c.execute("UPDATE internal_transfer_request_items SET accepted_bin = ? WHERE id = ?", (accepted_bin, item['id']))
+            
+            # Allocate stock into destination warehouse and accepted_bin
+            c.execute('''
+                SELECT quantity FROM stock_balances 
+                WHERE part_number = ? AND warehouse = ? AND bin_location = ? AND batch_no = ?
+            ''', (part_number, dest_wh, accepted_bin, batch_no))
+            dest_stock = c.fetchone()
+            
+            if dest_stock:
+                c.execute('''
+                    UPDATE stock_balances 
+                    SET quantity = quantity + ? 
+                    WHERE part_number = ? AND warehouse = ? AND bin_location = ? AND batch_no = ?
+                ''', (qty, part_number, dest_wh, accepted_bin, batch_no))
+            else:
+                c.execute('''
+                    INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity, batch_no, expiry)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (part_number, dest_wh, accepted_bin, qty, batch_no, expiry))
+                
+            # Log in stock_journal
+            voucher = generate_voucher_number("STJ-TRF")
+            vouchers.append(voucher)
+            log_remarks = f"Transfer Accepted: {req_row['tr_number']}"
+            if acceptance_remarks:
+                log_remarks += f" - {acceptance_remarks}"
+                
+            c.execute('''
+                INSERT INTO stock_journal 
+                (voucher_number, transaction_type, part_number, quantity, from_warehouse, from_bin, to_warehouse, to_bin, user_name, remarks)
+                VALUES (?, 'TRANSFER', ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                voucher,
+                part_number,
+                qty,
+                req_row['source_warehouse'],
+                item['source_bin'],
+                dest_wh,
+                accepted_bin,
+                request.user['full_name'],
+                log_remarks
+            ))
+            
+        # Update transfer request record
+        c.execute('''
+            UPDATE internal_transfer_requests 
+            SET status = 'Accepted', approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (request.user['full_name'], id))
+        
+        # Notify the creator / source warehouse admin
+        creator_name = req_row['created_by']
+        c.execute("SELECT id FROM users WHERE full_name = ? OR username = ?", (creator_name, creator_name))
+        creator_user = c.fetchone()
+        target_uid = creator_user['id'] if creator_user else None
+        
+        c.execute('''
+            INSERT INTO notifications (target_user_id, target_role, title, message, related_entity_type, related_entity_id)
+            VALUES (?, 'warehouse_admin', ?, ?, 'transfer_request', ?)
+        ''', (
+            target_uid,
+            'Transfer Accepted',
+            f'Transfer {req_row["tr_number"]} has been accepted by {request.user["full_name"]} and allocated into {dest_wh}.',
+            id
+        ))
+        
+        # Mark all pending notifications for this transfer as read for current user
+        c.execute('''
+            UPDATE notifications 
+            SET is_read = 1 
+            WHERE related_entity_type = 'transfer_request' AND related_entity_id = ?
+        ''', (id,))
+        
+        c.execute("COMMIT")
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Transfer {req_row['tr_number']} accepted! Stock successfully allocated to {dest_wh}.",
+            "vouchers": vouchers
+        }), 200
+        
+    except Exception as e:
+        c.execute("ROLLBACK")
+        conn.close()
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to accept transfer: {str(e)}"}), 500
+
+@app.route('/api/internal-transfers/<int:id>/reject', methods=['POST'])
+@login_required
+def reject_internal_transfer(id):
+    data = request.json or {}
+    reason = data.get('reason', 'Transfer rejected by recipient').strip()
+    
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    try:
+        c.execute("SELECT * FROM internal_transfer_requests WHERE id = ?", (id,))
+        req_row = c.fetchone()
+        if not req_row:
+            conn.close()
+            return jsonify({"error": "Transfer request not found"}), 404
+            
+        if req_row['status'] != 'Pending Approval':
+            conn.close()
+            return jsonify({"error": f"Cannot reject transfer with status '{req_row['status']}'"}), 400
+            
+        dest_wh = req_row['destination_warehouse']
+        if request.user['role'] == 'warehouse_admin' and request.user.get('warehouse_code') != dest_wh:
+            conn.close()
+            return jsonify({"error": f"Unauthorized. Only warehouse admins for {dest_wh} can reject this transfer."}), 403
+            
+        c.execute("SELECT * FROM internal_transfer_request_items WHERE request_id = ?", (id,))
+        items = c.fetchall()
+        
+        c.execute("BEGIN TRANSACTION")
+        
+        # Return deducted stock back to source warehouse and source bin
+        for item in items:
+            p_num = item['part_number']
+            qty = item['quantity']
+            s_wh = req_row['source_warehouse']
+            s_bin = item['source_bin']
+            batch_no = item['batch_no'] or ''
+            expiry = item['expiry'] or ''
+            
+            c.execute('''
+                SELECT quantity FROM stock_balances 
+                WHERE part_number = ? AND warehouse = ? AND bin_location = ? AND batch_no = ?
+            ''', (p_num, s_wh, s_bin, batch_no))
+            s_stock = c.fetchone()
+            
+            if s_stock:
+                c.execute('''
+                    UPDATE stock_balances 
+                    SET quantity = quantity + ? 
+                    WHERE part_number = ? AND warehouse = ? AND bin_location = ? AND batch_no = ?
+                ''', (qty, p_num, s_wh, s_bin, batch_no))
+            else:
+                c.execute('''
+                    INSERT INTO stock_balances (part_number, warehouse, bin_location, quantity, batch_no, expiry)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (p_num, s_wh, s_bin, qty, batch_no, expiry))
+                
+        c.execute('''
+            UPDATE internal_transfer_requests 
+            SET status = 'Rejected', remarks = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (f"Rejected: {reason}", request.user['full_name'], id))
+        
+        # Notify creator
+        c.execute('''
+            INSERT INTO notifications (target_role, title, message, related_entity_type, related_entity_id)
+            VALUES ('warehouse_admin', 'Transfer Rejected', ?, 'transfer_request', ?)
+        ''', (f"Transfer {req_row['tr_number']} was rejected by {request.user['full_name']}: {reason}. Stock returned to {req_row['source_warehouse']}.", id))
+        
+        c.execute("COMMIT")
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"success": True, "message": "Transfer rejected and stock returned to source warehouse."}), 200
+        
+    except Exception as e:
+        c.execute("ROLLBACK")
+        conn.close()
+        return jsonify({"error": f"Failed to reject transfer: {str(e)}"}), 500
+
 @app.route('/api/internal-transfers', methods=['POST'])
 @login_required
 def create_internal_transfer():
     data = request.json
     tr_number = data.get('tr_number')
     source_warehouse = data.get('source_warehouse')
+    destination_warehouse = data.get('destination_warehouse')
     items = data.get('items', [])
     
     if not tr_number or not source_warehouse or not items:
@@ -2952,17 +3504,17 @@ def create_internal_transfer():
     try:
         c.execute("BEGIN TRANSACTION")
         c.execute('''
-            INSERT INTO internal_transfer_requests (tr_number, source_warehouse, status)
-            VALUES (?, ?, 'Draft')
-        ''', (tr_number, source_warehouse))
+            INSERT INTO internal_transfer_requests (tr_number, source_warehouse, destination_warehouse, status)
+            VALUES (?, ?, ?, 'Draft')
+        ''', (tr_number, source_warehouse, destination_warehouse))
         
         request_id = c.lastrowid
         
         for item in items:
             c.execute('''
-                INSERT INTO internal_transfer_request_items (request_id, part_number, item_name, quantity, source_bin)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (request_id, item['part_number'], item['item_name'], item['quantity'], item['source_bin']))
+                INSERT INTO internal_transfer_request_items (request_id, part_number, item_name, quantity, source_bin, target_bin)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (request_id, item['part_number'], item['item_name'], item['quantity'], item['source_bin'], item.get('target_bin')))
             
         c.execute("COMMIT")
         conn.close()
@@ -2983,6 +3535,7 @@ def create_internal_transfer():
 def update_internal_transfer(id):
     data = request.json
     items = data.get('items', [])
+    destination_warehouse = data.get('destination_warehouse')
     
     if not items:
         return jsonify({"error": "Missing items"}), 400
@@ -2997,11 +3550,14 @@ def update_internal_transfer(id):
         
         for item in items:
             c.execute('''
-                INSERT INTO internal_transfer_request_items (request_id, part_number, item_name, quantity, source_bin)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (id, item['part_number'], item['item_name'], item['quantity'], item['source_bin']))
+                INSERT INTO internal_transfer_request_items (request_id, part_number, item_name, quantity, source_bin, target_bin)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (id, item['part_number'], item['item_name'], item['quantity'], item['source_bin'], item.get('target_bin')))
             
-        c.execute("UPDATE internal_transfer_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (id,))
+        if destination_warehouse:
+            c.execute("UPDATE internal_transfer_requests SET destination_warehouse = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (destination_warehouse, id))
+        else:
+            c.execute("UPDATE internal_transfer_requests SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (id,))
         
         c.execute("COMMIT")
         conn.close()

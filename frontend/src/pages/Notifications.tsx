@@ -119,6 +119,8 @@ export default function Notifications() {
       } finally {
         setLoadingPicklist(false);
       }
+    } else if (notif.related_entity_type === 'transfer_request') {
+      navigate(`/transfer-approval/${notif.related_entity_id}`);
     }
   };
 

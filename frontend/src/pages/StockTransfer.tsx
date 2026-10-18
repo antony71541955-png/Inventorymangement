@@ -732,8 +732,11 @@ export default function StockTransfer() {
           hasErrors = true;
         }
         
-        if (!dest.toWarehouse.trim() || !dest.toBin.trim()) {
-          rowError = 'Destination warehouse and bin are mandatory.';
+        if (!dest.toWarehouse.trim()) {
+          rowError = 'Destination warehouse is mandatory.';
+          hasErrors = true;
+        } else if (sourceWarehouse === dest.toWarehouse.trim() && !dest.toBin.trim()) {
+          rowError = 'Destination bin is mandatory for transfers within the same warehouse.';
           hasErrors = true;
         } else {
           const sourceItem = itemsPool[dest.sourceItemIndex as number];
@@ -769,32 +772,85 @@ export default function StockTransfer() {
     }
 
     try {
-      const vouchers = [];
-      for (const dest of destinations) {
-        const qty = parseInt(dest.qtyToTransfer);
-        const sourceItem = itemsPool[dest.sourceItemIndex as number];
-        const res = await fetch(`${API_URL}/api/transfers`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            part_number: sourceItem.part_number,
-            from_warehouse: sourceItem.warehouse,
-            from_bin: sourceItem.bin_location,
-            to_warehouse: dest.toWarehouse.trim(),
-            to_bin: dest.toBin.trim(),
-            quantity: qty,
-            remarks: dest.remarks.trim()
-          })
-        });
+      const interWarehouseDests = destinations.filter(d => d.toWarehouse.trim() !== sourceWarehouse);
+      const sameWarehouseDests = destinations.filter(d => d.toWarehouse.trim() === sourceWarehouse);
+      const successMessages: string[] = [];
 
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Transfer posting failed for a destination');
+      // 1. Process Inter-Warehouse Transfers -> Submit to Transfer Inbox
+      if (interWarehouseDests.length > 0) {
+        const groupedByDest: Record<string, typeof destinations> = {};
+        for (const d of interWarehouseDests) {
+          const wh = d.toWarehouse.trim();
+          if (!groupedByDest[wh]) groupedByDest[wh] = [];
+          groupedByDest[wh].push(d);
         }
-        vouchers.push(data.voucher);
+
+        for (const [destWh, destList] of Object.entries(groupedByDest)) {
+          const itemsPayload = destList.map(dest => {
+            const sourceItem = itemsPool[dest.sourceItemIndex as number];
+            return {
+              part_number: sourceItem.part_number,
+              item_name: sourceItem.item_name,
+              quantity: parseInt(dest.qtyToTransfer),
+              source_bin: sourceItem.bin_location,
+              target_bin: dest.toBin.trim() || undefined
+            };
+          });
+
+          const res = await fetch(`${API_URL}/api/internal-transfers/submit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              tr_number: trNumber,
+              source_warehouse: sourceWarehouse,
+              destination_warehouse: destWh,
+              remarks: destList[0]?.remarks?.trim() || `Inter-warehouse transfer ${trNumber}`,
+              items: itemsPayload
+            })
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || `Transfer request submission failed for ${destWh}`);
+          }
+          successMessages.push(`Transfer Request ${data.tr_number || trNumber} submitted to ${destWh} for approval in Transfer Inbox.`);
+        }
       }
 
-      setSuccess(`Journal Voucher(s) posted successfully: ${vouchers.join(', ')}`);
+      // 2. Process Same-Warehouse Transfers -> Direct Journal Transfer
+      if (sameWarehouseDests.length > 0) {
+        const vouchers = [];
+        for (const dest of sameWarehouseDests) {
+          const qty = parseInt(dest.qtyToTransfer);
+          const sourceItem = itemsPool[dest.sourceItemIndex as number];
+          const res = await fetch(`${API_URL}/api/transfers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              part_number: sourceItem.part_number,
+              from_warehouse: sourceItem.warehouse,
+              from_bin: sourceItem.bin_location,
+              to_warehouse: dest.toWarehouse.trim(),
+              to_bin: dest.toBin.trim(),
+              quantity: qty,
+              remarks: dest.remarks.trim(),
+              tr_number: trNumber
+            })
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Transfer posting failed for a destination');
+          }
+          vouchers.push(data.voucher);
+        }
+        successMessages.push(`Journal Voucher(s) posted for same-warehouse transfer: ${vouchers.join(', ')}`);
+      }
+
+      setSuccess(successMessages.join(' '));
       
       // Reset form fields
       if (user?.role === 'warehouse_admin' && user?.warehouse_code) {
@@ -804,6 +860,8 @@ export default function StockTransfer() {
       }
       setSelectedSources([]);
       setDestinations([{ sourceItemIndex: '', toWarehouse: '', toBin: '', qtyToTransfer: '1', remarks: 'Location stock transfer' }]);
+      setTrId(null);
+      setStep(1);
 
       // Refresh data
       fetchPool();
@@ -1044,12 +1102,14 @@ export default function StockTransfer() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">Bin*</label>
+                          <label className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider">
+                            Bin {dest.toWarehouse && dest.toWarehouse !== sourceWarehouse ? '(Suggested in Request / Optional)' : '*'}
+                          </label>
                           <SearchableSelect
                             options={(locations[dest.toWarehouse] || []).map(bin => ({ label: bin, value: bin }))}
                             value={dest.toBin}
                             onChange={(val) => updateDestination(index, 'toBin', val as string)}
-                            placeholder="-- Select --"
+                            placeholder={dest.toWarehouse && dest.toWarehouse !== sourceWarehouse ? "-- Optional Suggested Bin --" : "-- Select --"}
                             disabled={!dest.toWarehouse}
                             className="h-9"
                           />
@@ -1097,7 +1157,13 @@ export default function StockTransfer() {
                 </Button>
                 <Button type="submit" disabled={posting}>
                   <RefreshCw size={16} className={`mr-2 ${posting ? 'animate-spin' : ''}`} />
-                  <span>{posting ? 'Posting...' : 'Post Transfer'}</span>
+                  <span>
+                    {posting 
+                      ? 'Processing...' 
+                      : destinations.some(d => d.toWarehouse && d.toWarehouse !== sourceWarehouse)
+                        ? 'Submit Transfer for Approval' 
+                        : 'Post Transfer'}
+                  </span>
                 </Button>
               </div>
             </form>

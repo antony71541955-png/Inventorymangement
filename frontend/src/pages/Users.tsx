@@ -31,6 +31,7 @@ interface UserItem {
 const AVAILABLE_MENUS = [
   { path: '/', name: 'Dashboard' },
   { path: '/inventory', name: 'Inventory' },
+  { path: '/transfer-inbox', name: 'Transfer Inbox' },
   { path: '/transfer', name: 'Stock Transfer' },
   { path: '/deduction', name: 'Excel Deduction' },
   { path: '/reports', name: 'Reports & Logs' },

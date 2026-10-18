@@ -263,7 +263,47 @@ export default function Customers() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Forms Column */}
         <div className="lg:col-span-4 flex flex-col gap-6">
-          
+          {/* Bulk Upload Card */}
+          <Card className="bg-white border border-zinc-200/85 rounded-xl shadow-sm">
+            <CardHeader className="pb-4 border-b border-zinc-100">
+              <CardTitle className="text-base font-bold text-zinc-800 flex items-center gap-2">
+                <FileSpreadsheet size={18} className="text-green-600" />
+                Bulk Upload
+              </CardTitle>
+              <CardDescription className="text-xs text-zinc-500">
+                Upload customers from an Excel or CSV file.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-5 space-y-4">
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                Ensure your file has headers: <strong>CUSTOMER NAME</strong>, <strong>CR/CASH</strong>, <strong>LOCATION</strong>, <strong>SALESMAN</strong>.
+              </p>
+              
+              <div className="flex items-center gap-3">
+                <input 
+                  type="file" 
+                  accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
+                  className="hidden" 
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                />
+                <Button 
+                  type="button" 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="w-full"
+                >
+                  {uploading ? (
+                    'Uploading...'
+                  ) : (
+                    <>
+                      <Upload size={14} /> Choose File & Upload
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
           {/* Individual Creation Card */}
           <Card className="bg-white border border-zinc-200/85 rounded-xl shadow-sm">
             <CardHeader className="pb-4 border-b border-zinc-100">
@@ -349,47 +389,7 @@ export default function Customers() {
             </CardContent>
           </Card>
 
-          {/* Bulk Upload Card */}
-          <Card className="bg-white border border-zinc-200/85 rounded-xl shadow-sm">
-            <CardHeader className="pb-4 border-b border-zinc-100">
-              <CardTitle className="text-base font-bold text-zinc-800 flex items-center gap-2">
-                <FileSpreadsheet size={18} className="text-green-600" />
-                Bulk Upload
-              </CardTitle>
-              <CardDescription className="text-xs text-zinc-500">
-                Upload customers from an Excel or CSV file.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-5 space-y-4">
-              <p className="text-[11px] text-zinc-500 leading-relaxed">
-                Ensure your file has headers: <strong>CUSTOMER NAME</strong>, <strong>CR/CASH</strong>, <strong>LOCATION</strong>, <strong>SALESMAN</strong>.
-              </p>
-              
-              <div className="flex items-center gap-3">
-                <input 
-                  type="file" 
-                  accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel" 
-                  className="hidden" 
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                />
-                <Button 
-                  type="button" 
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  className="w-full"
-                >
-                  {uploading ? (
-                    'Uploading...'
-                  ) : (
-                    <>
-                      <Upload size={14} /> Choose File & Upload
-                    </>
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          
         </div>
 
         {/* Data Table Column */}

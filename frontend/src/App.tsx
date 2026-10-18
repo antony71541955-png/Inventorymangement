@@ -20,7 +20,8 @@ import {
   History,
   ClipboardList,
   CheckCircle,
-  Trash2
+  Trash2,
+  Inbox
 } from 'lucide-react';
 
 import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -42,7 +43,10 @@ import Picklist from './pages/Picklist';
 // import Bins from './pages/Bins';
 
 import Notifications from './pages/Notifications';
+import TransferInbox from './pages/TransferInbox';
+import TransferApproval from './pages/TransferApproval';
 import QualityCheck from './pages/QualityCheck';
+import Register from './pages/Register';
 import ClearDatabase from './pages/ClearDatabase';
 
 // Constants — uses VITE_API_URL env var in production (set in Render dashboard)
@@ -127,6 +131,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
           <Route path="/*" element={
             <ProtectedRoute>
               <Layout />
@@ -144,6 +149,7 @@ function Layout() {
   const location = useLocation();
   const [openMobileMenu, setOpenMobileMenu] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [pendingTransfersCount, setPendingTransfersCount] = useState(0);
   const prevUnreadCountRef = useRef(0);
 
   useEffect(() => {
@@ -184,6 +190,17 @@ function Layout() {
         }
       })
       .catch(console.error);
+
+      fetch(`${API_URL}/api/transfer-inbox/unread-count`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (typeof data.count === 'number') {
+          setPendingTransfersCount(data.count);
+        }
+      })
+      .catch(console.error);
     }
   }, [user, token, location.pathname]);
 
@@ -199,6 +216,7 @@ function Layout() {
   const baseMenuItems = [
     { path: '/', name: 'Dashboard', icon: <LayoutDashboard size={16} /> },
     { path: '/inventory', name: 'Inventory', icon: <Boxes size={16} /> },
+    { path: '/transfer-inbox', name: 'Transfer Inbox', icon: <Inbox size={16} /> },
     { path: '/customers', name: 'Customers', icon: <UsersIcon size={16} /> },
     { path: '/transfer', name: 'Stock Transfer', icon: <RefreshCw size={16} /> },
     { path: '/transfer-request', name: 'Transfer Request', icon: <ClipboardList size={16} /> },
@@ -220,9 +238,12 @@ function Layout() {
     : user?.role === 'superadmin' ? [
         ...baseMenuItems,
         { path: '/audit-logs', name: 'Audit Logs', icon: <History size={16} /> },
-        { path: '/users', name: 'User Management', icon: <User size={16} /> }
+        { path: '/users', name: 'User Management', icon: <User size={16} /> },
+        { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },
+        { path: '/bins', name: 'Bins', icon: <Boxes size={16} /> },
       ] : user?.role === 'warehouse_admin' ? [
         { path: '/', name: 'Dashboard', icon: <LayoutDashboard size={16} /> },
+        { path: '/transfer-inbox', name: 'Transfer Inbox', icon: <Inbox size={16} /> },
         { path: '/notifications', name: 'Notifications', icon: <Bell size={16} /> },
         { path: '/bins', name: 'Bins', icon: <Boxes size={16} /> },
         { path: '/transfer', name: 'Stock Transfer', icon: <RefreshCw size={16} /> },
@@ -254,11 +275,18 @@ function Layout() {
               {item.icon}
               <span>{item.name}</span>
             </div>
-            {item.path === '/notifications' && unreadCount > 0 && (
-              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-indigo-600 text-[10px] font-bold text-white">
-                {unreadCount}
-              </span>
-            )}
+            <div className="flex items-center gap-1.5">
+              {item.path === '/notifications' && unreadCount > 0 && (
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-indigo-600 text-[10px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              )}
+              {item.path === '/transfer-inbox' && pendingTransfersCount > 0 && (
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-sm">
+                  {pendingTransfersCount}
+                </span>
+              )}
+            </div>
           </Link>
         );
       })}
@@ -419,6 +447,8 @@ function Layout() {
             <Route path="/qc" element={<QualityCheck />} />
             <Route path="/bins" element={<Bins />} />
             <Route path="/notifications" element={<Notifications />} />
+            <Route path="/transfer-inbox" element={<TransferInbox />} />
+            <Route path="/transfer-approval/:id" element={<TransferApproval />} />
             {user?.role === 'superadmin' && (
               <>
                 <Route path="/users" element={<Users />} />
